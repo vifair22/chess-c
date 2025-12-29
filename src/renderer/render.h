@@ -12,6 +12,24 @@ typedef struct {
     int window_width;
     int window_height;
     SDL_Texture *piece_textures[12]; // chess pieces: white/black pawn, knight, bishop, rook, queen, king
+    // Animation state
+    struct {
+        bool active;
+        char piece;
+        int from_file, from_rank;
+        int to_file, to_rank;
+        Uint32 start_ms;
+        Uint32 duration_ms;
+        SDL_FPoint from_px;
+        SDL_FPoint to_px;
+    } anim;
+    int last_turn_number;
+    // Overlay fade state (0..1)
+    float legal_alpha[8][8];
+    float highlight_alpha[8][8];
+    float blocked_alpha[8][8];
+    float hover_alpha[8][8];
+    float check_alpha[8][8];
 } RenderContext;
 
 typedef struct {

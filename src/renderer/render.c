@@ -95,6 +95,13 @@ bool render_init(RenderContext *ctx, const char *title, int width, int height) {
 
     ctx->window_width = width;
     ctx->window_height = height;
+    ctx->last_turn_number = 0;
+    ctx->anim.active = false;
+    memset(ctx->legal_alpha, 0, sizeof(ctx->legal_alpha));
+    memset(ctx->highlight_alpha, 0, sizeof(ctx->highlight_alpha));
+    memset(ctx->blocked_alpha, 0, sizeof(ctx->blocked_alpha));
+    memset(ctx->hover_alpha, 0, sizeof(ctx->hover_alpha));
+    memset(ctx->check_alpha, 0, sizeof(ctx->check_alpha));
 
     // Load chess piece textures (BMP versions of provided PNG assets).
     const char *paths[12] = {
@@ -168,10 +175,18 @@ static void draw_checker_piece(SDL_Renderer *renderer, char piece, const SDL_Rec
     }
 }
 
-static void draw_board(RenderContext *ctx, const GameState *state, int offset_x, int offset_y, int cell) {
+static void draw_board(RenderContext *ctx, const GameState *state, int offset_x, int offset_y, int cell, Uint32 now_ms) {
     SDL_Renderer *renderer = ctx->renderer;
     int hover_file = state->hover_pos.file;
     int hover_rank = state->hover_pos.rank;
+    const float fade_rate = 0.25f;
+    // Expire animation if needed.
+    if (ctx->anim.active) {
+        Uint32 elapsed = now_ms - ctx->anim.start_ms;
+        if (elapsed >= ctx->anim.duration_ms) {
+            ctx->anim.active = false;
+        }
+    }
     for (int rank = 0; rank < 8; ++rank) {
         for (int file = 0; file < 8; ++file) {
             const SquareState *sq = &state->board_state.squares[rank][file];
@@ -187,24 +202,95 @@ static void draw_board(RenderContext *ctx, const GameState *state, int offset_x,
                 SDL_RenderDrawRect(renderer, &r);
             }
 
-            if (sq->flags & SQUARE_LEGAL) {
-                draw_highlight(renderer, r, kPalette.legal_fill);
+            // Smooth overlay fades.
+            float target_legal = (sq->flags & SQUARE_LEGAL) ? 1.0f : 0.0f;
+            float target_highlight = (sq->flags & SQUARE_HIGHLIGHT) ? 1.0f : 0.0f;
+            float target_blocked = (sq->flags & SQUARE_BLOCKED) ? 1.0f : 0.0f;
+            float target_hover = (hover_file == file && hover_rank == rank) ? 1.0f : 0.0f;
+            float target_check = (sq->flags & SQUARE_CHECK) ? 1.0f : 0.0f;
+            float *la = &ctx->legal_alpha[rank][file];
+            float *ha = &ctx->highlight_alpha[rank][file];
+            float *ba = &ctx->blocked_alpha[rank][file];
+            float *ho = &ctx->hover_alpha[rank][file];
+            float *ca = &ctx->check_alpha[rank][file];
+            #define FADE(cur, tgt) do { (cur) += (tgt - (cur)) * fade_rate; if ((cur) < 0.001f) (cur) = 0.0f; } while(0)
+            FADE(*la, target_legal);
+            FADE(*ha, target_highlight);
+            FADE(*ba, target_blocked);
+            FADE(*ho, target_hover);
+            FADE(*ca, target_check);
+            #undef FADE
+
+            if (*la > 0.0f) {
+                SDL_Color c = kPalette.legal_fill;
+                c.a = (Uint8)((float)c.a * (*la));
+                draw_highlight(renderer, r, c);
             }
-            if (sq->flags & SQUARE_HIGHLIGHT) {
-                draw_highlight(renderer, r, kPalette.highlight_fill);
+            if (*ha > 0.0f) {
+                SDL_Color c = kPalette.highlight_fill;
+                c.a = (Uint8)((float)c.a * (*ha));
+                draw_highlight(renderer, r, c);
             }
-            if (sq->flags & SQUARE_BLOCKED) {
-                draw_highlight(renderer, r, kPalette.blocked_fill);
+            if (*ba > 0.0f) {
+                SDL_Color c = kPalette.blocked_fill;
+                c.a = (Uint8)((float)c.a * (*ba));
+                draw_highlight(renderer, r, c);
             }
-            if (hover_file == file && hover_rank == rank) {
-                draw_highlight(renderer, r, kPalette.hover_fill);
+            if (*ho > 0.0f) {
+                SDL_Color c = kPalette.hover_fill;
+                c.a = (Uint8)((float)c.a * (*ho));
+                draw_highlight(renderer, r, c);
             }
-            if (sq->flags & SQUARE_CHECK) {
-                draw_highlight(renderer, r, kPalette.check_fill);
+            if (*ca > 0.0f) {
+                SDL_Color c = kPalette.check_fill;
+                c.a = (Uint8)((float)c.a * (*ca));
+                draw_highlight(renderer, r, c);
             }
 
             char piece = sq->piece;
             if (piece != '.') {
+                bool drawn = false;
+                if (ctx->anim.active && ctx->anim.to_file == file && ctx->anim.to_rank == rank && ctx->anim.piece == piece) {
+                    Uint32 elapsed = now_ms - ctx->anim.start_ms;
+                    float t = ctx->anim.duration_ms > 0 ? (float)elapsed / (float)ctx->anim.duration_ms : 1.0f;
+                    if (t >= 1.0f) {
+                        ctx->anim.active = false;
+                        t = 1.0f;
+                    }
+                    t = t * t * (3.0f - 2.0f * t); // smoothstep
+                    float x = ctx->anim.from_px.x + (ctx->anim.to_px.x - ctx->anim.from_px.x) * t;
+                    float y = ctx->anim.from_px.y + (ctx->anim.to_px.y - ctx->anim.from_px.y) * t;
+                    SDL_Texture *tex = texture_for_piece(ctx, piece);
+                    if (tex) {
+                        int tw = 0, th = 0;
+                        SDL_QueryTexture(tex, NULL, NULL, &tw, &th);
+                        int target = cell * 9 / 10;
+                        if (target < 8) target = cell;
+                        int denom = (tw > th) ? tw : th;
+                        double scale = denom > 0 ? (double)target / (double)denom : 1.0;
+                        int dw = (int)(tw * scale);
+                        int dh = (int)(th * scale);
+                        SDL_Rect dst = {
+                            (int)(x - dw / 2),
+                            (int)(y - dh / 2),
+                            dw,
+                            dh
+                        };
+                        SDL_Rect shadow = dst;
+                        shadow.x += cell / 12;
+                        shadow.y += cell / 12;
+                        SDL_SetTextureColorMod(tex, 30, 30, 30);
+                        SDL_SetTextureAlphaMod(tex, 180);
+                        SDL_RenderCopy(renderer, tex, NULL, &shadow);
+                        SDL_SetTextureColorMod(tex, 255, 255, 255);
+                        SDL_SetTextureAlphaMod(tex, 255);
+                        SDL_RenderCopy(renderer, tex, NULL, &dst);
+                        drawn = true;
+                    }
+                }
+                if (drawn) {
+                    continue;
+                }
                 SDL_Texture *tex = texture_for_piece(ctx, piece);
                 if (tex) {
                     int tw = 0, th = 0;
@@ -221,9 +307,22 @@ static void draw_board(RenderContext *ctx, const GameState *state, int offset_x,
                         dw,
                         dh
                     };
+                    SDL_Rect shadow = dst;
+                    shadow.x += cell / 12;
+                    shadow.y += cell / 12;
+                    SDL_SetTextureColorMod(tex, 30, 30, 30);
+                    SDL_SetTextureAlphaMod(tex, 180);
+                    SDL_RenderCopy(renderer, tex, NULL, &shadow);
+                    SDL_SetTextureColorMod(tex, 255, 255, 255);
+                    SDL_SetTextureAlphaMod(tex, 255);
                     SDL_RenderCopy(renderer, tex, NULL, &dst);
                 } else {
                     SDL_Color piece_color = (piece >= 'a' && piece <= 'z') ? kPalette.piece_dark : kPalette.piece_light;
+                    // Simple outline for glyph fallback to keep contrast on light squares.
+                    SDL_Color outline = {30, 30, 30, 200};
+                    SDL_Rect or = {r.x + 1, r.y + 1, cell, cell};
+                    SDL_SetRenderDrawColor(renderer, outline.r, outline.g, outline.b, outline.a);
+                    SDL_RenderFillRect(renderer, &or);
                     const Glyph *glyph = find_glyph(piece);
                     if (glyph) {
                         draw_glyph(renderer, glyph, r.x, r.y, cell, piece_color);
@@ -360,7 +459,28 @@ void render_frame(RenderContext *ctx, GameState *state) {
 
     BoardGeometry geo = render_compute_board_geometry(ctx);
 
-    draw_board(ctx, &snapshot, geo.offset_x, geo.offset_y, geo.cell);
+    // Start a piece animation when the turn number advances.
+    if (snapshot.turn_number != ctx->last_turn_number &&
+        snapshot.move_start.file >= 0 && snapshot.move_start.rank >= 0 &&
+        snapshot.move_end.file >= 0 && snapshot.move_end.rank >= 0) {
+        ctx->anim.active = true;
+        ctx->anim.piece = snapshot.board_state.squares[snapshot.move_end.rank][snapshot.move_end.file].piece;
+        ctx->anim.from_file = snapshot.move_start.file;
+        ctx->anim.from_rank = snapshot.move_start.rank;
+        ctx->anim.to_file = snapshot.move_end.file;
+        ctx->anim.to_rank = snapshot.move_end.rank;
+        ctx->anim.start_ms = SDL_GetTicks();
+        ctx->anim.duration_ms = 180;
+        ctx->anim.from_px.x = geo.offset_x + (snapshot.move_start.file * geo.cell) + geo.cell / 2.0f;
+        ctx->anim.from_px.y = geo.offset_y + (snapshot.move_start.rank * geo.cell) + geo.cell / 2.0f;
+        ctx->anim.to_px.x = geo.offset_x + (snapshot.move_end.file * geo.cell) + geo.cell / 2.0f;
+        ctx->anim.to_px.y = geo.offset_y + (snapshot.move_end.rank * geo.cell) + geo.cell / 2.0f;
+    }
+    ctx->last_turn_number = snapshot.turn_number;
+
+    Uint32 now_ms = SDL_GetTicks();
+
+    draw_board(ctx, &snapshot, geo.offset_x, geo.offset_y, geo.cell, now_ms);
     draw_board_labels(ctx->renderer, geo.offset_x, geo.offset_y, geo.cell, geo.board_size, ctx->window_width, ctx->window_height);
 
     if (snapshot.show_main_menu) {
