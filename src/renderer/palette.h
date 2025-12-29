@@ -15,6 +15,7 @@ typedef struct {
     SDL_Color hover_fill;
     SDL_Color blocked_fill;
     SDL_Color highlight_fill;
+    SDL_Color check_fill;
 
     // Pieces and text
     SDL_Color piece_light;

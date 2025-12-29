@@ -25,7 +25,8 @@ typedef struct {
 enum SquareFlags {
     SQUARE_BLOCKED = 1 << 0,  // square blocked for attacks
     SQUARE_LEGAL = 1 << 1,    // legal destination for the current move
-    SQUARE_HIGHLIGHT = 1 << 2 // generic highlight (e.g., hover/preview)
+    SQUARE_HIGHLIGHT = 1 << 2, // generic highlight (e.g., hover/preview)
+    SQUARE_CHECK = 1 << 3      // king in check indicator
 };
 
 typedef struct {
@@ -54,7 +55,7 @@ typedef struct {
     char game_mode[16]; // e.g., "chess", "checkers", "ataxx"
     int turn_number;
     GameTime game_time;
-    char game_phase[16]; // e.g., "play", "pause", "menu"
+    char game_phase[24]; // e.g., "play", "checkmate", "win_white_resign"
     bool white_can_castle_kingside;
     bool white_can_castle_queenside;
     bool black_can_castle_kingside;
@@ -72,10 +73,14 @@ typedef struct {
     double perf_accum_time;
     int perf_accum_frames;
     bool show_debug;
+    char promotion_choice_white; // desired promotion piece for white (uppercase)
+    char promotion_choice_black; // desired promotion piece for black (lowercase)
 } GameState;
 
 bool game_init(GameState *state);
 void game_destroy(GameState *state);
+// Resign for the current side to move.
+void game_resign(GameState *state);
 void game_handle_click(GameState *state, int file, int rank);
 char game_piece_at(const GameState *state, int file, int rank);
 void game_eval_legal_moves(GameState *state, int file, int rank);

@@ -29,6 +29,8 @@ target_include_directories(chess-c PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_definitions(chess-c PRIVATE $<$<CONFIG:Debug>:DEBUG>)
 target_link_libraries(chess-c PRIVATE SDL2::SDL2-static SDL2::SDL2main)
 
+add_subdirectory(test)
+
 if (WIN32)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
     target_link_options(chess-c PRIVATE

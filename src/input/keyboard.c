@@ -29,6 +29,34 @@ void keyboard_handle_event(GameState *game, const SDL_Event *event) {
                 game_reset(game, "chess");
             }
             break;
+        case SDLK_q:
+            if (game->show_pause_menu) {
+                game_resign(game);
+            } else {
+                game->promotion_choice_white = 'Q';
+                game->promotion_choice_black = 'q';
+            }
+            break;
+        case SDLK_r:
+            if (game->show_pause_menu) {
+                game_resign(game);
+            } else {
+                game->promotion_choice_white = 'R';
+                game->promotion_choice_black = 'r';
+            }
+            break;
+        case SDLK_b:
+            if (!game->show_pause_menu) {
+                game->promotion_choice_white = 'B';
+                game->promotion_choice_black = 'b';
+            }
+            break;
+        case SDLK_n:
+            if (!game->show_pause_menu) {
+                game->promotion_choice_white = 'N';
+                game->promotion_choice_black = 'n';
+            }
+            break;
         case SDLK_p:
         case SDLK_ESCAPE:
             if (game->show_main_menu) {

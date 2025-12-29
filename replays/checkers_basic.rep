@@ -1,0 +1,22 @@
+CHESSC_REPLAY_V1
+mode checkers
+phase play
+white_to_move 0
+turn 0
+castle -
+en_passant -1 -1
+board
+m.m.m.m.
+.m.m.m.m
+m.m.m.m.
+........
+........
+M.M.M.M.
+.M.M.M.M
+M.M.M.M.
+events
+0 click 1 2
+10 click 0 3
+20 click 2 5
+30 click 3 4
+end

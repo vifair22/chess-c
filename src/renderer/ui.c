@@ -57,6 +57,7 @@ void ui_draw_pause_menu(RenderContext *ctx, const GameState *state) {
     const char *body =
         "GAME PAUSED\n"
         "ESC OR P TO RESUME\n"
+        "R OR Q TO RESIGN\n"
         "ENTER TO CLOSE MENU";
     draw_panel(ctx, "PAUSE", body);
 }

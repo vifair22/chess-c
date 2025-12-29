@@ -1,0 +1,50 @@
+CHESSC_REPLAY_V1
+mode chess
+phase play
+white_to_move 1
+turn 0
+castle KQkq
+en_passant -1 -1
+board
+rnbqkbnr
+pppppppp
+........
+........
+........
+........
+PPPPPPPP
+RNBQKBNR
+expect_phase checkmate
+expect_turn 7
+expect_board
+r.bqkb.r
+pppp.Qpp
+..n..n..
+....p...
+..B.P...
+........
+PPPP.PPP
+RNB.K.NR
+events
+0 hover 4 6
+0 click 4 6
+10 click 4 4
+20 hover 4 1
+20 click 4 1
+30 click 4 3
+40 hover 5 7
+40 click 5 7
+50 click 2 4
+60 hover 1 0
+60 click 1 0
+70 click 2 2
+80 hover 3 7
+80 click 3 7
+90 click 7 3
+100 hover 6 0
+100 click 6 0
+110 click 5 2
+120 hover 7 3
+120 click 7 3
+130 click 5 1
+end

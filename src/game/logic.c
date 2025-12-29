@@ -92,6 +92,19 @@ static void init_board_for_mode(GameState *state) {
     }
 }
 
+void game_resign(GameState *state) {
+    if (!state || is_terminal_phase(state->game_phase)) {
+        return;
+    }
+    const char *phase = state->white_to_move ? "win_black_resign" : "win_white_resign";
+    strncpy(state->game_phase, phase, sizeof(state->game_phase) - 1);
+    state->game_phase[sizeof(state->game_phase) - 1] = '\0';
+    state->show_pause_menu = false;
+    state->show_main_menu = false;
+    state->selected_file = -1;
+    state->selected_rank = -1;
+}
+
 // === Chess logic ===
 
 static void apply_basic_move(GameState *state, int from_file, int from_rank, int to_file, int to_rank, MoveHint hint) {
@@ -201,7 +214,7 @@ static BoardPos find_king(const GameState *state, bool white) {
 
 static bool square_attacked_by(const GameState *state, int file, int rank, bool by_white) {
     // Pawn attacks
-    int pawn_dir = by_white ? -1 : 1;
+    int pawn_dir = by_white ? 1 : -1;
     int pawn_rank = rank + pawn_dir;
     if (in_bounds(file - 1, pawn_rank)) {
         char p = game_piece_at(state, file - 1, pawn_rank);
@@ -288,6 +301,113 @@ static bool is_in_check(const GameState *state, bool white) {
     return square_attacked_by(state, king.file, king.rank, !white);
 }
 
+static bool mark_check_path(GameState *state, int kf, int kr, bool by_white) {
+    // Clear existing check markers.
+    for (int r = 0; r < 8; ++r) {
+        for (int f = 0; f < 8; ++f) {
+            state->board_state.squares[r][f].flags &= ~SQUARE_CHECK;
+        }
+    }
+
+    // Pawn checks
+    int pawn_dir = by_white ? 1 : -1;
+    int pr = kr + pawn_dir;
+    for (int df = -1; df <= 1; df += 2) {
+        int pf = kf + df;
+        if (!in_bounds(pf, pr)) continue;
+        char p = game_piece_at(state, pf, pr);
+        if ((by_white && p == 'P') || (!by_white && p == 'p')) {
+            state->board_state.squares[kr][kf].flags |= SQUARE_CHECK;
+            state->board_state.squares[pr][pf].flags |= SQUARE_CHECK;
+            return true;
+        }
+    }
+
+    // Knights
+    static const int k_offsets[8][2] = {{1,2},{2,1},{-1,2},{-2,1},{1,-2},{2,-1},{-1,-2},{-2,-1}};
+    for (int i = 0; i < 8; ++i) {
+        int nf = kf + k_offsets[i][0];
+        int nr = kr + k_offsets[i][1];
+        if (!in_bounds(nf, nr)) continue;
+        char p = game_piece_at(state, nf, nr);
+        if ((by_white && p == 'N') || (!by_white && p == 'n')) {
+            state->board_state.squares[kr][kf].flags |= SQUARE_CHECK;
+            state->board_state.squares[nr][nf].flags |= SQUARE_CHECK;
+            return true;
+        }
+    }
+
+    // King adjacency (rare double king contact)
+    for (int df = -1; df <= 1; ++df) {
+        for (int dr = -1; dr <= 1; ++dr) {
+            if (df == 0 && dr == 0) continue;
+            int tf = kf + df;
+            int tr = kr + dr;
+            if (!in_bounds(tf, tr)) continue;
+            char p = game_piece_at(state, tf, tr);
+            if ((by_white && p == 'K') || (!by_white && p == 'k')) {
+                state->board_state.squares[kr][kf].flags |= SQUARE_CHECK;
+                state->board_state.squares[tr][tf].flags |= SQUARE_CHECK;
+                return true;
+            }
+        }
+    }
+
+    // Sliding checks: bishops/queens (diagonals), rooks/queens (orthogonal)
+    static const int diag_dirs[4][2] = {{1,1},{1,-1},{-1,1},{-1,-1}};
+    for (int d = 0; d < 4; ++d) {
+        int f = kf + diag_dirs[d][0];
+        int r = kr + diag_dirs[d][1];
+        while (in_bounds(f, r)) {
+            char p = game_piece_at(state, f, r);
+            if (p != '.') {
+                if ((by_white && (p == 'B' || p == 'Q')) || (!by_white && (p == 'b' || p == 'q'))) {
+                    // mark path from king to attacker inclusive
+                    int pf = kf;
+                    int pr2 = kr;
+                    while (pf != f || pr2 != r) {
+                        state->board_state.squares[pr2][pf].flags |= SQUARE_CHECK;
+                        pf += diag_dirs[d][0];
+                        pr2 += diag_dirs[d][1];
+                    }
+                    state->board_state.squares[r][f].flags |= SQUARE_CHECK;
+                    return true;
+                }
+                break;
+            }
+            f += diag_dirs[d][0];
+            r += diag_dirs[d][1];
+        }
+    }
+
+    static const int ortho_dirs[4][2] = {{1,0},{-1,0},{0,1},{0,-1}};
+    for (int d = 0; d < 4; ++d) {
+        int f = kf + ortho_dirs[d][0];
+        int r = kr + ortho_dirs[d][1];
+        while (in_bounds(f, r)) {
+            char p = game_piece_at(state, f, r);
+            if (p != '.') {
+                if ((by_white && (p == 'R' || p == 'Q')) || (!by_white && (p == 'r' || p == 'q'))) {
+                    int pf = kf;
+                    int pr2 = kr;
+                    while (pf != f || pr2 != r) {
+                        state->board_state.squares[pr2][pf].flags |= SQUARE_CHECK;
+                        pf += ortho_dirs[d][0];
+                        pr2 += ortho_dirs[d][1];
+                    }
+                    state->board_state.squares[r][f].flags |= SQUARE_CHECK;
+                    return true;
+                }
+                break;
+            }
+            f += ortho_dirs[d][0];
+            r += ortho_dirs[d][1];
+        }
+    }
+
+    return false;
+}
+
 static bool has_any_legal_move(const GameState *state, bool white_to_move) {
     GameState tmp;
     copy_state_minimal(&tmp, state);
@@ -318,6 +438,13 @@ static void update_game_phase_chess(GameState *state) {
     bool check = is_in_check(state, to_move_white);
     bool can_move = has_any_legal_move(state, to_move_white);
 
+    // Clear existing check markers.
+    for (int r = 0; r < 8; ++r) {
+        for (int f = 0; f < 8; ++f) {
+            state->board_state.squares[r][f].flags &= ~SQUARE_CHECK;
+        }
+    }
+
     if (can_move) {
         const char *phase = check ? "check" : "play";
         strncpy(state->game_phase, phase, sizeof(state->game_phase) - 1);
@@ -326,6 +453,13 @@ static void update_game_phase_chess(GameState *state) {
         const char *phase = check ? "checkmate" : "stalemate";
         strncpy(state->game_phase, phase, sizeof(state->game_phase) - 1);
         state->game_phase[sizeof(state->game_phase) - 1] = '\0';
+    }
+
+    if (check) {
+        BoardPos king = find_king(state, to_move_white);
+        if (king.file >= 0 && king.rank >= 0) {
+            mark_check_path(state, king.file, king.rank, !to_move_white);
+        }
     }
 }
 
@@ -748,12 +882,16 @@ static void gen_pawn_moves(GameState *state, int file, int rank, bool white) {
     int dir = white ? -1 : 1;
     int start_rank = white ? 6 : 1;
     int promo_rank = white ? 0 : 7;
+    char promo_piece = white ? state->promotion_choice_white : state->promotion_choice_black;
+    if (promo_piece == 0) {
+        promo_piece = white ? 'Q' : 'q';
+    }
     int one_rank = rank + dir;
     if (is_empty(state, file, one_rank)) {
         MoveHint hint = {0};
         if (one_rank == promo_rank) {
             hint.flags |= MOVE_PROMOTION;
-            hint.promotion = white ? 'Q' : 'q';
+            hint.promotion = promo_piece;
         }
         add_move_if_legal(state, file, rank, file, one_rank, hint);
         int two_rank = rank + 2 * dir;
@@ -769,7 +907,7 @@ static void gen_pawn_moves(GameState *state, int file, int rank, bool white) {
             MoveHint hint = {0};
             if (tr == promo_rank) {
                 hint.flags |= MOVE_PROMOTION;
-                hint.promotion = white ? 'Q' : 'q';
+                hint.promotion = promo_piece;
             }
             add_move_if_legal(state, file, rank, tf, tr, hint);
         }
@@ -954,6 +1092,8 @@ void game_reset(GameState *state, const char *mode) {
     state->perf_accum_time = 0.0;
     state->perf_accum_frames = 0;
     state->show_debug = true;
+    state->promotion_choice_white = 'Q';
+    state->promotion_choice_black = 'q';
 
     game_clear_move_flags(state);
 }

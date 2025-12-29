@@ -1,0 +1,203 @@
+CHESSC_REPLAY_V1
+mode chess
+phase play
+white_to_move 1
+turn 0
+castle KQkq
+en_passant -1 -1
+board
+rnbqkbnr
+pppppppp
+........
+........
+........
+........
+PPPPPPPP
+RNBQKBNR
+expect_turn 87
+expect_phase win_white_resign
+expect_board
+........
+Q......p
+......p.
+.....p..
+.....P..
+..p...P.
+...r...P
+..K.k...
+events
+0 click 4 6
+10 click 4 4
+20 click 3 1
+30 click 3 2
+40 click 3 6
+50 click 3 4
+60 click 6 0
+70 click 5 2
+80 click 1 7
+90 click 2 5
+100 click 6 1
+110 click 6 2
+120 click 2 7
+130 click 4 5
+140 click 5 0
+150 click 6 1
+160 click 3 7
+170 click 3 6
+180 click 2 1
+190 click 2 2
+200 click 5 6
+210 click 5 5
+220 click 1 1
+230 click 1 3
+240 click 6 7
+250 click 4 6
+260 click 1 0
+270 click 3 1
+280 click 4 5
+290 click 7 2
+300 click 6 1
+310 click 7 2
+320 click 3 6
+330 click 7 2
+340 click 2 0
+350 click 1 1
+360 click 0 6
+370 click 0 5
+380 click 4 1
+390 click 4 3
+400 click 4 7
+410 click 2 7
+420 click 3 0
+430 click 4 1
+440 click 2 7
+450 click 1 7
+460 click 0 1
+470 click 0 2
+480 click 4 6
+490 click 2 7
+500 click 4 0
+510 click 2 0
+520 click 2 7
+530 click 1 5
+540 click 4 3
+550 click 3 4
+560 click 3 7
+570 click 3 4
+580 click 2 2
+590 click 2 3
+600 click 3 4
+610 click 3 7
+620 click 3 1
+630 click 1 2
+640 click 6 6
+650 click 6 5
+660 click 2 0
+670 click 1 0
+680 click 1 5
+690 click 0 3
+700 click 1 1
+710 click 0 0
+720 click 5 7
+730 click 7 5
+740 click 3 2
+750 click 3 3
+760 click 7 2
+770 click 5 4
+780 click 1 0
+790 click 0 1
+800 click 7 7
+810 click 4 7
+820 click 3 3
+830 click 3 4
+840 click 2 5
+850 click 3 3
+860 click 1 2
+870 click 3 3
+880 click 4 4
+890 click 3 3
+900 click 4 1
+910 click 3 2
+920 click 3 7
+930 click 3 4
+940 click 2 3
+950 click 3 4
+960 click 4 7
+970 click 4 1
+980 click 0 1
+990 click 1 2
+1000 click 5 4
+1010 click 3 4
+1020 click 1 2
+1030 click 0 3
+1040 click 1 6
+1050 click 1 4
+1060 click 0 3
+1070 click 0 4
+1080 click 3 4
+1090 click 2 5
+1100 click 3 2
+1110 click 3 3
+1120 click 4 1
+1130 click 0 1
+1140 click 0 0
+1150 click 1 1
+1160 click 0 1
+1170 click 1 1
+1180 click 3 3
+1190 click 2 4
+1200 click 2 5
+1210 click 5 2
+1220 click 0 4
+1230 click 0 5
+1240 click 5 2
+1250 click 0 2
+1260 click 0 5
+1270 click 1 4
+1280 click 2 6
+1290 click 2 5
+1300 click 1 4
+1310 click 2 5
+1320 click 0 2
+1330 click 0 7
+1340 click 2 5
+1350 click 3 6
+1360 click 0 7
+1370 click 1 6
+1380 click 3 6
+1390 click 3 7
+1400 click 7 5
+1410 click 5 7
+1420 click 3 0
+1430 click 3 6
+1440 click 1 1
+1450 click 3 1
+1460 click 3 6
+1470 click 3 1
+1480 click 5 7
+1490 click 2 4
+1500 click 1 3
+1510 click 2 4
+1520 click 1 6
+1530 click 7 0
+1540 click 3 1
+1550 click 3 5
+1560 click 7 0
+1570 click 0 0
+1580 click 2 4
+1590 click 2 5
+1600 click 0 0
+1610 click 0 4
+1620 click 3 7
+1630 click 4 7
+1640 click 5 5
+1650 click 5 4
+1660 click 5 1
+1670 click 5 3
+1680 click 1 7
+1690 click 2 7
+1700 click 3 5
+1710 click 3 6
+1720 click 0 4
+1730 click 0 1
+end

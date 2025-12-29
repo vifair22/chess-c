@@ -12,6 +12,7 @@ const RenderPalette kPalette = {
     .hover_fill = {120, 160, 220, 100},
     .blocked_fill = {200, 90, 90, 70},
     .highlight_fill = {210, 180, 80, 120},
+    .check_fill = {200, 60, 60, 140},
 
     .piece_light = {240, 240, 240, 255},
     .piece_dark = {40, 40, 40, 255},

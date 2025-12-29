@@ -142,6 +142,9 @@ static void draw_board(SDL_Renderer *renderer, const GameState *state, int offse
             if (hover_file == file && hover_rank == rank) {
                 draw_highlight(renderer, r, kPalette.hover_fill);
             }
+            if (sq->flags & SQUARE_CHECK) {
+                draw_highlight(renderer, r, kPalette.check_fill);
+            }
 
             char piece = sq->piece;
             if (piece != '.') {
