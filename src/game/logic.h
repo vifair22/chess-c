@@ -1,0 +1,73 @@
+#pragma once
+
+#include <SDL_mutex.h>
+#include <stdbool.h>
+#include <stdint.h>
+
+typedef struct {
+    char piece;    // '.' when empty, otherwise piece code
+    uint8_t flags; // bitmask: see SquareFlags
+} SquareState;
+
+typedef struct {
+    int file; // 0-7, -1 when unset
+    int rank; // 0-7, -1 when unset
+} BoardPos;
+
+typedef struct {
+    SquareState squares[8][8];
+} BoardState;
+
+typedef struct {
+    double total_seconds; // accumulated game time
+} GameTime;
+
+enum SquareFlags {
+    SQUARE_BLOCKED = 1 << 0,  // square blocked for attacks
+    SQUARE_LEGAL = 1 << 1,    // legal destination for the current move
+    SQUARE_HIGHLIGHT = 1 << 2 // generic highlight (e.g., hover/preview)
+};
+
+typedef struct {
+    uint8_t flags; // bitmask: see MoveFlags
+    char promotion; // promotion piece when applicable (uppercase)
+} MoveHint;
+
+enum MoveFlags {
+    MOVE_LEGAL = 1 << 0,
+    MOVE_EN_PASSANT = 1 << 1,
+    MOVE_CASTLE_KING = 1 << 2,
+    MOVE_CASTLE_QUEEN = 1 << 3,
+    MOVE_PROMOTION = 1 << 4,
+    MOVE_CAPTURE = 1 << 5, // generic capture (checkers)
+    MOVE_CHAIN = 1 << 6    // move keeps the turn (checkers multi-jump)
+};
+
+typedef struct {
+    SDL_mutex *mutex;
+    BoardState board_state;
+    MoveHint legal_moves[8][8]; // metadata for legal destinations
+    bool white_to_move;
+    int selected_file; // 0-7, -1 when nothing selected
+    int selected_rank; // 0-7, -1 when nothing selected
+    BoardPos hover_pos; // current hover/preview square
+    char game_mode[16]; // e.g., "chess", "checkers", "ataxx"
+    int turn_number;
+    GameTime game_time;
+    char game_phase[16]; // e.g., "play", "pause", "menu"
+    bool white_can_castle_kingside;
+    bool white_can_castle_queenside;
+    bool black_can_castle_kingside;
+    bool black_can_castle_queenside;
+    BoardPos en_passant_target; // square that can be captured en passant, -1/-1 if none
+    BoardPos move_start;
+    BoardPos move_end;
+    bool checkers_must_continue; // true when a multi-jump is in progress
+} GameState;
+
+bool game_init(GameState *state);
+void game_destroy(GameState *state);
+void game_handle_click(GameState *state, int file, int rank);
+char game_piece_at(const GameState *state, int file, int rank);
+void game_eval_legal_moves(GameState *state, int file, int rank);
+void game_clear_move_flags(GameState *state);
