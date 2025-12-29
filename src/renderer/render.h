@@ -11,6 +11,7 @@ typedef struct {
     SDL_Renderer *renderer;
     int window_width;
     int window_height;
+    SDL_Texture *piece_textures[12]; // chess pieces: white/black pawn, knight, bishop, rook, queen, king
 } RenderContext;
 
 typedef struct {

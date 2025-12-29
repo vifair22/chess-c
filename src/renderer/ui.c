@@ -61,3 +61,37 @@ void ui_draw_pause_menu(RenderContext *ctx, const GameState *state) {
         "ENTER TO CLOSE MENU";
     draw_panel(ctx, "PAUSE", body);
 }
+
+void ui_draw_win_screen(RenderContext *ctx, const GameState *state) {
+    const char *title = "GAME OVER";
+    char body[256] = {0};
+
+    const char *phase = state->game_phase;
+    const char *result = "DRAW";
+    if (strncmp(phase, "stalemate", 9) == 0) {
+        title = "STALEMATE";
+        result = "DRAW (STALEMATE)";
+    } else if (strncmp(phase, "draw", 4) == 0) {
+        title = "DRAW";
+        result = "DRAW AGREED";
+    } else if (strncmp(phase, "checkmate", 9) == 0 || strncmp(phase, "win_white", 9) == 0 || strncmp(phase, "win_black", 9) == 0) {
+        // In checkmate, the side to move is the loser.
+        bool white_wins = (strncmp(phase, "win_white", 9) == 0) || (!state->white_to_move && strncmp(phase, "checkmate", 9) == 0);
+        bool black_wins = (strncmp(phase, "win_black", 9) == 0) || (state->white_to_move && strncmp(phase, "checkmate", 9) == 0);
+        if (white_wins) {
+            title = "WHITE WINS";
+            result = "WHITE WINS";
+        } else if (black_wins) {
+            title = "BLACK WINS";
+            result = "BLACK WINS";
+        }
+    }
+
+    snprintf(body, sizeof(body),
+        "%s\n"
+        "RESULT: %s\n\n"
+        "PRESS ENTER/SPACE TO RETURN TO MENU",
+        state->game_mode, result);
+
+    draw_panel(ctx, title, body);
+}

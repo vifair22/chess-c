@@ -14,17 +14,20 @@ static int run_game(const char *exe, const char *rep, int watch) {
         return 1;
     }
     char line[512];
-    int pass = -1;
+    bool saw_result = false;
+    bool pass = false;
     while (fgets(line, sizeof(line), fp)) {
         if (strncmp(line, "RESULT ", 7) == 0) {
-            if (strstr(line, "PASS")) pass = 0;
-            else pass = 1;
+            saw_result = true;
+            pass = strstr(line, "PASS") != NULL;
         }
         fputs(line, stdout);
     }
     int rc = _pclose(fp);
-    if (pass == -1) pass = rc;
-    return pass;
+    // Require both: process exited cleanly AND a RESULT line that says PASS.
+    if (rc != 0) return 1;
+    if (!saw_result) return 1;
+    return pass ? 0 : 1;
 }
 
 int main(int argc, char **argv) {

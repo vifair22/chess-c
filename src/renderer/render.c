@@ -16,13 +16,50 @@ typedef struct {
 } Glyph;
 
 static const Glyph GLYPHS[] = {
-    {'P', {0x1E, 0x11, 0x1E, 0x10, 0x10, 0x10, 0x00}}, // 11110,10001,...
-    {'N', {0x19, 0x15, 0x15, 0x15, 0x15, 0x15, 0x00}},
-    {'B', {0x1E, 0x10, 0x1C, 0x12, 0x12, 0x1C, 0x00}},
-    {'R', {0x1F, 0x11, 0x1F, 0x11, 0x11, 0x11, 0x00}},
-    {'Q', {0x1E, 0x11, 0x1E, 0x11, 0x11, 0x1F, 0x00}},
-    {'K', {0x11, 0x12, 0x14, 0x18, 0x14, 0x12, 0x00}},
+    // 5x7 silhouettes for chess pieces (rows are MSB-left).
+    {'P', {0x04, 0x0E, 0x04, 0x0E, 0x0E, 0x1F, 0x0A}}, // pawn: head, stem, rounded base
+    {'N', {0x06, 0x0E, 0x0C, 0x0F, 0x07, 0x1F, 0x0E}}, // knight: arched neck + jaw
+    {'B', {0x04, 0x0E, 0x04, 0x0E, 0x0A, 0x1F, 0x0A}}, // bishop: mitre notch and base
+    {'R', {0x15, 0x1F, 0x1F, 0x0E, 0x0E, 0x1F, 0x1F}}, // rook: crenellations + tower
+    {'Q', {0x15, 0x0A, 0x1F, 0x0E, 0x1F, 0x1F, 0x0E}}, // queen: crown with jewel
+    {'K', {0x04, 0x1F, 0x0A, 0x0E, 0x0A, 0x1F, 0x0E}}, // king: cross and brim
 };
+
+static SDL_Texture *load_texture(SDL_Renderer *renderer, const char *path) {
+    SDL_Surface *surf = SDL_LoadBMP(path);
+    if (!surf) {
+        SDL_Log("SDL_LoadBMP failed for %s: %s", path, SDL_GetError());
+        return NULL;
+    }
+    SDL_Texture *tex = SDL_CreateTextureFromSurface(renderer, surf);
+    SDL_FreeSurface(surf);
+    if (!tex) {
+        SDL_Log("SDL_CreateTextureFromSurface failed for %s: %s", path, SDL_GetError());
+    }
+    return tex;
+}
+
+static SDL_Texture *texture_for_piece(RenderContext *ctx, char piece) {
+    // Order: 0-5 white (P N B R Q K), 6-11 black
+    int idx = -1;
+    switch (piece) {
+        case 'P': idx = 0; break;
+        case 'N': idx = 1; break;
+        case 'B': idx = 2; break;
+        case 'R': idx = 3; break;
+        case 'Q': idx = 4; break;
+        case 'K': idx = 5; break;
+        case 'p': idx = 6; break;
+        case 'n': idx = 7; break;
+        case 'b': idx = 8; break;
+        case 'r': idx = 9; break;
+        case 'q': idx = 10; break;
+        case 'k': idx = 11; break;
+        default: break;
+    }
+    if (idx < 0) return NULL;
+    return ctx->piece_textures[idx];
+}
 
 static const Glyph *find_glyph(char piece) {
     char upper = (piece >= 'a' && piece <= 'z') ? (char)(piece - 32) : piece;
@@ -58,6 +95,25 @@ bool render_init(RenderContext *ctx, const char *title, int width, int height) {
 
     ctx->window_width = width;
     ctx->window_height = height;
+
+    // Load chess piece textures (BMP versions of provided PNG assets).
+    const char *paths[12] = {
+        "assets/chess/white_pawn.bmp",
+        "assets/chess/white_knight.bmp",
+        "assets/chess/white_bishop.bmp",
+        "assets/chess/white_rook.bmp",
+        "assets/chess/white_queen.bmp",
+        "assets/chess/white_king.bmp",
+        "assets/chess/black_pawn.bmp",
+        "assets/chess/black_knight.bmp",
+        "assets/chess/black_bishop.bmp",
+        "assets/chess/black_rook.bmp",
+        "assets/chess/black_queen.bmp",
+        "assets/chess/black_king.bmp",
+    };
+    for (int i = 0; i < 12; ++i) {
+        ctx->piece_textures[i] = load_texture(ctx->renderer, paths[i]);
+    }
     return true;
 }
 
@@ -112,7 +168,8 @@ static void draw_checker_piece(SDL_Renderer *renderer, char piece, const SDL_Rec
     }
 }
 
-static void draw_board(SDL_Renderer *renderer, const GameState *state, int offset_x, int offset_y, int cell) {
+static void draw_board(RenderContext *ctx, const GameState *state, int offset_x, int offset_y, int cell) {
+    SDL_Renderer *renderer = ctx->renderer;
     int hover_file = state->hover_pos.file;
     int hover_rank = state->hover_pos.rank;
     for (int rank = 0; rank < 8; ++rank) {
@@ -148,13 +205,32 @@ static void draw_board(SDL_Renderer *renderer, const GameState *state, int offse
 
             char piece = sq->piece;
             if (piece != '.') {
-                SDL_Color piece_color = (piece >= 'a' && piece <= 'z') ? kPalette.piece_dark : kPalette.piece_light;
-                const Glyph *glyph = find_glyph(piece);
-                if (glyph) {
-                    draw_glyph(renderer, glyph, r.x, r.y, cell, piece_color);
+                SDL_Texture *tex = texture_for_piece(ctx, piece);
+                if (tex) {
+                    int tw = 0, th = 0;
+                    SDL_QueryTexture(tex, NULL, NULL, &tw, &th);
+                    int target = cell * 9 / 10;
+                    if (target < 8) target = cell;
+                    int denom = (tw > th) ? tw : th;
+                    double scale = denom > 0 ? (double)target / (double)denom : 1.0;
+                    int dw = (int)(tw * scale);
+                    int dh = (int)(th * scale);
+                    SDL_Rect dst = {
+                        r.x + (cell - dw) / 2,
+                        r.y + (cell - dh) / 2,
+                        dw,
+                        dh
+                    };
+                    SDL_RenderCopy(renderer, tex, NULL, &dst);
                 } else {
-                    SDL_SetRenderDrawColor(renderer, piece_color.r, piece_color.g, piece_color.b, piece_color.a);
-                    draw_checker_piece(renderer, piece, &r, piece_color);
+                    SDL_Color piece_color = (piece >= 'a' && piece <= 'z') ? kPalette.piece_dark : kPalette.piece_light;
+                    const Glyph *glyph = find_glyph(piece);
+                    if (glyph) {
+                        draw_glyph(renderer, glyph, r.x, r.y, cell, piece_color);
+                    } else {
+                        SDL_SetRenderDrawColor(renderer, piece_color.r, piece_color.g, piece_color.b, piece_color.a);
+                        draw_checker_piece(renderer, piece, &r, piece_color);
+                    }
                 }
             }
         }
@@ -284,13 +360,18 @@ void render_frame(RenderContext *ctx, GameState *state) {
 
     BoardGeometry geo = render_compute_board_geometry(ctx);
 
-    draw_board(ctx->renderer, &snapshot, geo.offset_x, geo.offset_y, geo.cell);
+    draw_board(ctx, &snapshot, geo.offset_x, geo.offset_y, geo.cell);
     draw_board_labels(ctx->renderer, geo.offset_x, geo.offset_y, geo.cell, geo.board_size, ctx->window_width, ctx->window_height);
 
     if (snapshot.show_main_menu) {
         ui_draw_main_menu(ctx, &snapshot);
     } else if (snapshot.show_pause_menu) {
         ui_draw_pause_menu(ctx, &snapshot);
+    } else if (strncmp(snapshot.game_phase, "checkmate", 9) == 0 ||
+               strncmp(snapshot.game_phase, "stalemate", 9) == 0 ||
+               strncmp(snapshot.game_phase, "win_", 4) == 0 ||
+               strncmp(snapshot.game_phase, "draw", 4) == 0) {
+        ui_draw_win_screen(ctx, &snapshot);
     }
     if (snapshot.show_debug) {
         debug_overlay_render(ctx, &snapshot);
@@ -300,6 +381,12 @@ void render_frame(RenderContext *ctx, GameState *state) {
 }
 
 void render_shutdown(RenderContext *ctx) {
+    for (int i = 0; i < 12; ++i) {
+        if (ctx->piece_textures[i]) {
+            SDL_DestroyTexture(ctx->piece_textures[i]);
+            ctx->piece_textures[i] = NULL;
+        }
+    }
     if (ctx->renderer) {
         SDL_DestroyRenderer(ctx->renderer);
         ctx->renderer = NULL;

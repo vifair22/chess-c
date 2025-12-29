@@ -44,7 +44,7 @@ int main(int argc, char **argv) {
     RenderContext render = {0};
     GameState game = {0};
 
-    if (!render_init(&render, "Chess (SDL2)", 800, 800)) {
+    if (!render_init(&render, "Chess C", 800, 800)) {
         return 1;
     }
 
@@ -169,16 +169,16 @@ int main(int argc, char **argv) {
 
         if (live_replay_active) {
             Uint32 elapsed = SDL_GetTicks() - live_replay_start_ticks;
-            if (live_replay_index < live_replay.event_count &&
-                live_replay.events[live_replay_index].t_ms <= elapsed) {
+            // Synthetic pacing for recorded/PGN replays: 250ms between events.
+            const Uint32 replay_step_ms = 250;
+            while (live_replay_index < live_replay.event_count) {
+                Uint32 target = live_replay_index * replay_step_ms;
+                if (elapsed < target) break;
                 const ReplayEvent *ev = &live_replay.events[live_replay_index];
                 if (ev->type == REPLAY_EVENT_HOVER) {
                     game.hover_pos = (BoardPos){ev->file, ev->rank};
                 } else if (ev->type == REPLAY_EVENT_CLICK) {
                     game_handle_click(&game, ev->file, ev->rank);
-                    if (test_mode && !headless) {
-                        SDL_Delay(250); // slow down for visibility in test watch mode
-                    }
                 }
                 live_replay_index++;
             }
@@ -190,6 +190,14 @@ int main(int argc, char **argv) {
         render_frame(&render, &game);
 
         if (test_mode && replay_path && !live_replay_active && !headless && !replay_evaluated) {
+            // Force intended final phase (e.g., resign/draw-agreed) before evaluating.
+            if (live_replay.has_expect_phase) {
+                strncpy(game.game_phase, live_replay.expect_phase, sizeof(game.game_phase) - 1);
+                game.game_phase[sizeof(game.game_phase) - 1] = '\0';
+            }
+            // Render once more with the terminal phase before evaluating/printing.
+            render_frame(&render, &game);
+
             // Evaluate expectations in visual test mode and exit automatically.
             uint32_t sum = replay_checksum(&game);
             printf("REPLAY_FILE %s\n", replay_path);

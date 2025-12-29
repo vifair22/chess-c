@@ -1,5 +1,13 @@
 #include "input/keyboard.h"
 
+static bool is_terminal_phase(const char *phase) {
+    if (!phase) return false;
+    return strncmp(phase, "checkmate", 9) == 0 ||
+           strncmp(phase, "stalemate", 9) == 0 ||
+           strncmp(phase, "win_", 4) == 0 ||
+           strncmp(phase, "draw", 4) == 0;
+}
+
 void keyboard_handle_event(GameState *game, const SDL_Event *event) {
     if (!game || !event) {
         return;
@@ -14,6 +22,8 @@ void keyboard_handle_event(GameState *game, const SDL_Event *event) {
         case SDLK_SPACE:
             if (game->show_main_menu) {
                 game->show_main_menu = false;
+            } else if (is_terminal_phase(game->game_phase)) {
+                game->show_main_menu = true;
             }
             break;
         case SDLK_F3:
@@ -61,7 +71,7 @@ void keyboard_handle_event(GameState *game, const SDL_Event *event) {
         case SDLK_ESCAPE:
             if (game->show_main_menu) {
                 game->show_main_menu = false;
-            } else {
+            } else if (!is_terminal_phase(game->game_phase)) {
                 game->show_pause_menu = !game->show_pause_menu;
             }
             break;
