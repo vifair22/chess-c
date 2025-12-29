@@ -14,7 +14,9 @@ add_executable(chess-c
     src/game/logic.c
     src/renderer/draw.c
     src/renderer/render.c
+    src/renderer/palette.c
     src/renderer/ui.c
+    src/renderer/debug_overlay.c
     src/input/keyboard.c
     src/input/mouse.c
     src/save/save_handler.c

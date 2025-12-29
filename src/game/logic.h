@@ -63,6 +63,15 @@ typedef struct {
     BoardPos move_start;
     BoardPos move_end;
     bool checkers_must_continue; // true when a multi-jump is in progress
+    bool show_main_menu;
+    bool show_pause_menu;
+    double last_frame_seconds; // duration of last frame/tick
+    double last_fps;           // frames (ticks) per second
+    double smoothed_frame_ms;
+    double smoothed_fps;
+    double perf_accum_time;
+    int perf_accum_frames;
+    bool show_debug;
 } GameState;
 
 bool game_init(GameState *state);
@@ -71,3 +80,4 @@ void game_handle_click(GameState *state, int file, int rank);
 char game_piece_at(const GameState *state, int file, int rank);
 void game_eval_legal_moves(GameState *state, int file, int rank);
 void game_clear_move_flags(GameState *state);
+void game_reset(GameState *state, const char *mode);

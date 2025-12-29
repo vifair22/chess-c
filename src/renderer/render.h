@@ -4,6 +4,7 @@
 #include <stdbool.h>
 
 #include "game/logic.h"
+#include "renderer/palette.h"
 
 typedef struct {
     SDL_Window *window;

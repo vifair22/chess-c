@@ -1,0 +1,46 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug chess-c (cppvsdbg)",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}\\build\\Debug\\chess-c.exe",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "CONFIG": "Debug"
+      },
+      "environment": [
+        {
+          "name": "PATH",
+          "value": "C:\\Users\\vifair\\vcpkg\\installed\\x64-windows\\bin;${env:PATH}"
+        }
+      ],
+      "preLaunchTask": "build chess-c (cmake)",
+      "console": "integratedTerminal",
+      "stopAtEntry": false
+    },
+    {
+      "name": "Debug chess-c (gdb)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build-unix/chess-c",
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "build chess-c (cmake)",
+      "MIMode": "gdb",
+      "externalConsole": false,
+      "stopAtEntry": false
+    },
+    {
+      "name": "Debug chess-c (lldb)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build-unix/chess-c",
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "build chess-c (cmake)",
+      "MIMode": "lldb",
+      "externalConsole": false,
+      "stopAtEntry": false
+    }
+  ]
+}

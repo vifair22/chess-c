@@ -92,10 +92,13 @@ static void init_board_for_mode(GameState *state) {
     }
 }
 
+// === Chess logic ===
+
 static void apply_basic_move(GameState *state, int from_file, int from_rank, int to_file, int to_rank, MoveHint hint) {
     SquareState *src = board_square_ptr(&state->board_state, from_file, from_rank);
     SquareState *dst = board_square_ptr(&state->board_state, to_file, to_rank);
     char moving = src->piece;
+    char captured = dst->piece;
 
     // En passant capture: remove the pawn behind the target square.
     if (hint.flags & MOVE_EN_PASSANT) {
@@ -136,23 +139,28 @@ static void apply_basic_move(GameState *state, int from_file, int from_rank, int
         rook_src->flags = 0;
     }
 
-    // Update castling rights when king or rook moves or rooks captured.
+    // Update castling rights when king or rooks move, or rooks are captured.
     if (moving == 'K') {
         state->white_can_castle_kingside = false;
         state->white_can_castle_queenside = false;
     } else if (moving == 'k') {
         state->black_can_castle_kingside = false;
         state->black_can_castle_queenside = false;
+    } else if (moving == 'R') {
+        if (from_rank == 7 && from_file == 0) state->white_can_castle_queenside = false;
+        if (from_rank == 7 && from_file == 7) state->white_can_castle_kingside = false;
+    } else if (moving == 'r') {
+        if (from_rank == 0 && from_file == 0) state->black_can_castle_queenside = false;
+        if (from_rank == 0 && from_file == 7) state->black_can_castle_kingside = false;
     }
-    if (from_rank == 7 && from_file == 0) state->white_can_castle_queenside = false;
-    if (from_rank == 7 && from_file == 7) state->white_can_castle_kingside = false;
-    if (from_rank == 0 && from_file == 0) state->black_can_castle_queenside = false;
-    if (from_rank == 0 && from_file == 7) state->black_can_castle_kingside = false;
     // Capture rook on its starting square removes opponent's right.
-    if (to_rank == 7 && to_file == 0) state->white_can_castle_queenside = false;
-    if (to_rank == 7 && to_file == 7) state->white_can_castle_kingside = false;
-    if (to_rank == 0 && to_file == 0) state->black_can_castle_queenside = false;
-    if (to_rank == 0 && to_file == 7) state->black_can_castle_kingside = false;
+    if (captured == 'R') {
+        if (to_rank == 7 && to_file == 0) state->white_can_castle_queenside = false;
+        if (to_rank == 7 && to_file == 7) state->white_can_castle_kingside = false;
+    } else if (captured == 'r') {
+        if (to_rank == 0 && to_file == 0) state->black_can_castle_queenside = false;
+        if (to_rank == 0 && to_file == 7) state->black_can_castle_kingside = false;
+    }
 
     // En passant target update
     state->en_passant_target = (BoardPos){-1, -1};
@@ -321,7 +329,7 @@ static void update_game_phase_chess(GameState *state) {
     }
 }
 
-// --- Checkers helpers ---
+// === Checkers logic ===
 
 static bool checkers_is_king(char piece) {
     return piece == 'K' || piece == 'k';
@@ -545,7 +553,7 @@ static void apply_checkers_move(GameState *state, int from_file, int from_rank, 
     state->move_end = (BoardPos){to_file, to_rank};
     state->en_passant_target = (BoardPos){-1, -1};
 
-    bool more_captures = capture && !became_king && checkers_can_capture_from(state, to_file, to_rank, placed);
+    bool more_captures = capture && checkers_can_capture_from(state, to_file, to_rank, placed);
     if (more_captures) {
         state->selected_file = to_file;
         state->selected_rank = to_rank;
@@ -568,30 +576,9 @@ bool game_init(GameState *state) {
         return false;
     }
 
-    if (state->game_mode[0] == '\0') {
-        strncpy(state->game_mode, "chess", sizeof(state->game_mode) - 1);
-        state->game_mode[sizeof(state->game_mode) - 1] = '\0';
-    }
-
-    init_board_for_mode(state);
-
-    state->white_to_move = game_mode_is(state, "checkers") ? false : true;
-    state->selected_file = -1;
-    state->selected_rank = -1;
-    state->hover_pos = (BoardPos){-1, -1};
-
-    state->turn_number = 0;
-    state->game_time.total_seconds = 0.0;
-    strncpy(state->game_phase, "play", sizeof(state->game_phase) - 1);
-    state->game_phase[sizeof(state->game_phase) - 1] = '\0';
-    state->move_start = (BoardPos){-1, -1};
-    state->move_end = (BoardPos){-1, -1};
-    state->white_can_castle_kingside = true;
-    state->white_can_castle_queenside = true;
-    state->black_can_castle_kingside = true;
-    state->black_can_castle_queenside = true;
-    state->en_passant_target = (BoardPos){-1, -1};
-    state->checkers_must_continue = false;
+    game_reset(state, state->game_mode[0] ? state->game_mode : "chess");
+    state->show_main_menu = true;
+    state->show_pause_menu = false;
 
     return true;
 }
@@ -934,4 +921,39 @@ void game_eval_legal_moves(GameState *state, int file, int rank) {
     } else {
         game_eval_legal_moves_chess(state, file, rank);
     }
+}
+
+void game_reset(GameState *state, const char *mode) {
+    if (!mode || mode[0] == '\0') {
+        mode = "chess";
+    }
+    strncpy(state->game_mode, mode, sizeof(state->game_mode) - 1);
+    state->game_mode[sizeof(state->game_mode) - 1] = '\0';
+
+    init_board_for_mode(state);
+
+    state->white_to_move = game_mode_is(state, "checkers") ? false : true;
+    state->selected_file = -1;
+    state->selected_rank = -1;
+    state->hover_pos = (BoardPos){-1, -1};
+
+    state->turn_number = 0;
+    state->game_time.total_seconds = 0.0;
+    strncpy(state->game_phase, "play", sizeof(state->game_phase) - 1);
+    state->game_phase[sizeof(state->game_phase) - 1] = '\0';
+    state->move_start = (BoardPos){-1, -1};
+    state->move_end = (BoardPos){-1, -1};
+    state->white_can_castle_kingside = true;
+    state->white_can_castle_queenside = true;
+    state->black_can_castle_kingside = true;
+    state->black_can_castle_queenside = true;
+    state->en_passant_target = (BoardPos){-1, -1};
+    state->checkers_must_continue = false;
+    state->smoothed_frame_ms = 0.0;
+    state->smoothed_fps = 0.0;
+    state->perf_accum_time = 0.0;
+    state->perf_accum_frames = 0;
+    state->show_debug = true;
+
+    game_clear_move_flags(state);
 }

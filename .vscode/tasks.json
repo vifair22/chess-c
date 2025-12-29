@@ -1,0 +1,54 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build chess-c (cmake)",
+      "type": "process",
+      "command": "cmake",
+      "args": [
+        "--build",
+        "--preset",
+        "default"
+      ],
+      "windows": {
+        "command": "powershell",
+        "args": [
+          "-NoLogo",
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "${workspaceFolder}/build_win.ps1"
+        ],
+        "options": {
+          "env": {
+            "CONFIG": "Debug"
+          }
+        }
+      },
+      "linux": {
+        "command": "./build_unix.sh",
+        "args": [],
+        "options": {
+          "env": {
+            "CONFIG": "Debug"
+          }
+        }
+      },
+      "osx": {
+        "command": "./build_unix.sh",
+        "args": [],
+        "options": {
+          "env": {
+            "CONFIG": "Debug"
+          }
+        }
+      },
+      "problemMatcher": "$msCompile",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    }
+  ]
+}

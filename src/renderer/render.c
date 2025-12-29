@@ -2,9 +2,13 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <ctype.h>
 
 #include "game/logic.h"
 #include "renderer/draw.h"
+#include "renderer/palette.h"
+#include "renderer/debug_overlay.h"
+#include "renderer/ui.h"
 
 typedef struct {
     char id;
@@ -50,6 +54,7 @@ bool render_init(RenderContext *ctx, const char *title, int width, int height) {
         SDL_Log("SDL_CreateRenderer failed: %s", SDL_GetError());
         return false;
     }
+    SDL_SetRenderDrawBlendMode(ctx->renderer, SDL_BLENDMODE_BLEND);
 
     ctx->window_width = width;
     ctx->window_height = height;
@@ -87,58 +92,73 @@ static void draw_highlight(SDL_Renderer *renderer, SDL_Rect rect, SDL_Color colo
     SDL_RenderFillRect(renderer, &rect);
 }
 
-static void draw_board(SDL_Renderer *renderer, const GameState *state, int offset_x, int offset_y, int cell) {
-    SDL_Color light = {255, 102, 255, 255};
-    SDL_Color dark = {118, 150, 86, 255};
-    SDL_Color select_fill = {246, 211, 101, 120};
-    SDL_Color select_edge = {209, 139, 71, 255};
-    SDL_Color legal_fill = {120, 200, 140, 120};
-    SDL_Color hover_fill = {120, 160, 220, 100};
-    SDL_Color blocked_fill = {200, 90, 90, 70};
-    SDL_Color highlight_fill = {210, 180, 80, 120};
+static void draw_checker_piece(SDL_Renderer *renderer, char piece, const SDL_Rect *cell_rect, SDL_Color color) {
+    int radius = cell_rect->w / 2 - cell_rect->w / 8;
+    if (radius < 6) radius = cell_rect->w / 3;
+    int cx = cell_rect->x + cell_rect->w / 2;
+    int cy = cell_rect->y + cell_rect->h / 2;
+    draw_filled_circle(renderer, cx, cy, radius);
+    if (piece == 'K' || piece == 'k') {
+        SDL_SetRenderDrawColor(renderer, kPalette.panel_border.r, kPalette.panel_border.g, kPalette.panel_border.b, kPalette.panel_border.a);
+        int inner = radius - 4;
+        if (inner > 2) {
+            draw_filled_circle(renderer, cx, cy, inner);
+            SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
+            int inner2 = inner - 3;
+            if (inner2 > 1) {
+                draw_filled_circle(renderer, cx, cy, inner2);
+            }
+        }
+    }
+}
 
+static void draw_board(SDL_Renderer *renderer, const GameState *state, int offset_x, int offset_y, int cell) {
     int hover_file = state->hover_pos.file;
     int hover_rank = state->hover_pos.rank;
     for (int rank = 0; rank < 8; ++rank) {
         for (int file = 0; file < 8; ++file) {
             const SquareState *sq = &state->board_state.squares[rank][file];
-            SDL_Color square = ((file + rank) % 2 == 0) ? light : dark;
+            SDL_Color square = ((file + rank) % 2 == 0) ? kPalette.board_light : kPalette.board_dark;
             SDL_Rect r = {offset_x + file * cell, offset_y + rank * cell, cell, cell};
 
             SDL_SetRenderDrawColor(renderer, square.r, square.g, square.b, square.a);
             SDL_RenderFillRect(renderer, &r);
 
             if (state->selected_file == file && state->selected_rank == rank) {
-                draw_highlight(renderer, r, select_fill);
-                SDL_SetRenderDrawColor(renderer, select_edge.r, select_edge.g, select_edge.b, select_edge.a);
+                draw_highlight(renderer, r, kPalette.select_fill);
+                SDL_SetRenderDrawColor(renderer, kPalette.select_edge.r, kPalette.select_edge.g, kPalette.select_edge.b, kPalette.select_edge.a);
                 SDL_RenderDrawRect(renderer, &r);
             }
 
             if (sq->flags & SQUARE_LEGAL) {
-                draw_highlight(renderer, r, legal_fill);
+                draw_highlight(renderer, r, kPalette.legal_fill);
             }
             if (sq->flags & SQUARE_HIGHLIGHT) {
-                draw_highlight(renderer, r, highlight_fill);
+                draw_highlight(renderer, r, kPalette.highlight_fill);
             }
             if (sq->flags & SQUARE_BLOCKED) {
-                draw_highlight(renderer, r, blocked_fill);
+                draw_highlight(renderer, r, kPalette.blocked_fill);
             }
             if (hover_file == file && hover_rank == rank) {
-                draw_highlight(renderer, r, hover_fill);
+                draw_highlight(renderer, r, kPalette.hover_fill);
             }
 
             char piece = sq->piece;
             if (piece != '.') {
-                SDL_Color piece_color = (piece >= 'a' && piece <= 'z') ?
-                    (SDL_Color){40, 40, 40, 255} : (SDL_Color){240, 240, 240, 255};
-                draw_glyph(renderer, find_glyph(piece), r.x, r.y, cell, piece_color);
+                SDL_Color piece_color = (piece >= 'a' && piece <= 'z') ? kPalette.piece_dark : kPalette.piece_light;
+                const Glyph *glyph = find_glyph(piece);
+                if (glyph) {
+                    draw_glyph(renderer, glyph, r.x, r.y, cell, piece_color);
+                } else {
+                    SDL_SetRenderDrawColor(renderer, piece_color.r, piece_color.g, piece_color.b, piece_color.a);
+                    draw_checker_piece(renderer, piece, &r, piece_color);
+                }
             }
         }
     }
 }
 
 static void draw_board_labels(SDL_Renderer *renderer, int offset_x, int offset_y, int cell, int board_size, int window_width, int window_height) {
-    SDL_Color label_color = {212, 220, 228, 230};
     int text_scale = cell / 6;
     if (text_scale < 2) {
         text_scale = 2;
@@ -161,7 +181,7 @@ static void draw_board_labels(SDL_Renderer *renderer, int offset_x, int offset_y
         int value = 8 - rank;
         int y = offset_y + rank * cell + (cell - digit_height) / 2;
         if (rank_x >= 0) {
-            draw_number(renderer, rank_x, y, digit_size, label_color, value);
+            draw_number(renderer, rank_x, y, digit_size, kPalette.label_text, value);
         }
     }
 
@@ -171,34 +191,52 @@ static void draw_board_labels(SDL_Renderer *renderer, int offset_x, int offset_y
         int center_x = offset_x + file * cell + cell / 2;
         int x = center_x - glyph_w / 2;
         if (file_y + glyph_h <= window_height) {
-        draw_text(renderer, x, file_y, text_scale, label_color, label);
+        draw_text(renderer, x, file_y, text_scale, kPalette.label_text, label);
         }
     }
 }
 
 static void draw_hud(SDL_Renderer *renderer, const GameState *state, int window_width) {
-    SDL_Color hud_color = {212, 220, 228, 230};
-    int scale = 2;
-    int padding = 12;
-    char line[64];
-
-    snprintf(line, sizeof(line), "MODE: %s", state->game_mode);
-    draw_text(renderer, padding, padding, scale, hud_color, line);
-
-    snprintf(line, sizeof(line), "PHASE: %s", state->game_phase);
-    draw_text(renderer, padding, padding + 12 * scale, scale, hud_color, line);
-
-    snprintf(line, sizeof(line), "TURN: %d", state->turn_number);
-    draw_text(renderer, padding, padding + 24 * scale, scale, hud_color, line);
-
-    int total_seconds = (int)state->game_time.total_seconds;
-    int minutes = total_seconds / 60;
-    int seconds = total_seconds % 60;
-    snprintf(line, sizeof(line), "TIME: %02d:%02d", minutes, seconds);
-    draw_text(renderer, padding, padding + 36 * scale, scale, hud_color, line);
-
-    // Keep HUD from colliding with right edge on very small windows.
+    (void)renderer;
+    (void)state;
     (void)window_width;
+}
+
+static void draw_debug_overlay(SDL_Renderer *renderer, const GameState *state, int window_width, int window_height) {
+    int scale = 2;
+    int padding = 10;
+    char body[256];
+
+    // In this loop, ticks and rendering are aligned; show tick rate (fps equivalent).
+    double fps = state->last_fps;
+    double ms = state->last_frame_seconds * 1000.0;
+
+    snprintf(body, sizeof(body),
+        "MODE: %s\n"
+        "PHASE: %s\n"
+        "TURN: %d\n"
+        "TICK: %.1f/s (%.2f ms)",
+        state->game_mode,
+        state->game_phase,
+        state->turn_number,
+        fps,
+        ms);
+
+    int text_width = measure_text_width(body, scale);
+    int lines = measure_text_lines(body);
+    int line_height = (7 + 1) * scale;
+    int text_height = lines * line_height;
+
+    int box_w = text_width + padding * 2;
+    int box_h = text_height + padding * 2;
+    SDL_Rect box = {padding, window_height - box_h - padding, box_w, box_h};
+
+    SDL_Color bg = kPalette.panel_backdrop;
+    bg.a = 160; // translucent background for readability
+    SDL_SetRenderDrawColor(renderer, bg.r, bg.g, bg.b, bg.a);
+    SDL_RenderFillRect(renderer, &box);
+
+    draw_text(renderer, box.x + padding, box.y + padding, scale, kPalette.panel_text, body);
 }
 
 BoardGeometry render_compute_board_geometry(const RenderContext *ctx) {
@@ -238,14 +276,22 @@ void render_frame(RenderContext *ctx, GameState *state) {
 
     SDL_GetWindowSize(ctx->window, &ctx->window_width, &ctx->window_height);
 
-    SDL_SetRenderDrawColor(ctx->renderer, 15, 20, 26, 255);
+    SDL_SetRenderDrawColor(ctx->renderer, kPalette.background.r, kPalette.background.g, kPalette.background.b, kPalette.background.a);
     SDL_RenderClear(ctx->renderer);
 
     BoardGeometry geo = render_compute_board_geometry(ctx);
 
     draw_board(ctx->renderer, &snapshot, geo.offset_x, geo.offset_y, geo.cell);
     draw_board_labels(ctx->renderer, geo.offset_x, geo.offset_y, geo.cell, geo.board_size, ctx->window_width, ctx->window_height);
-    draw_hud(ctx->renderer, &snapshot, ctx->window_width);
+
+    if (snapshot.show_main_menu) {
+        ui_draw_main_menu(ctx, &snapshot);
+    } else if (snapshot.show_pause_menu) {
+        ui_draw_pause_menu(ctx, &snapshot);
+    }
+    if (snapshot.show_debug) {
+        debug_overlay_render(ctx, &snapshot);
+    }
 
     SDL_RenderPresent(ctx->renderer);
 }
