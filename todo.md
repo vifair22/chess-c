@@ -1,10 +1,3 @@
-
-2) Per-piece coverage
-- Positions: center, edge, corner for each piece.
-- Blockers: friendly/enemy on each ray/offset (sliders); adjacent blockers for pawns; mixed blockers for knights (ignored).
-- Assertions: use legal set checks for each variant.
-- Examples: rook (blockers above/below/left/right), bishop (diagonals), queen (combine), knight (8/4/2 moves), king (exclude enemy-adjacent/in-check squares), pawn (double/single push, captures, en passant available/unavailable, no backward moves).
-
 3) Castling
 Illegals: in-check, through-check, destination in check, path blocked, king/rook moved then moved back (rights lost), rook captured (rights lost). Legals: both sides when clear. Assertions: assert_castle rights; legal set presence/absence for castling based on rights/attacks.
 
