@@ -1,0 +1,27 @@
+CHESSC_REPLAY_V1
+mode chess
+phase play
+white_to_move 1
+turn 0
+castle KQkq
+en_passant -1 -1
+board
+k.......
+........
+........
+........
+........
+...pp...
+....P...
+.......K
+events
+# Pawn at e2: backward move illegal
+0 hover 4 6
+0 click 4 6
+10 expect_illegal_move 4 7
+# Forward move blocked by pawn on e3
+20 expect_illegal_move 4 5
+# Diagonal capture to d3 should succeed
+30 click 3 5
+40 assert_turn 1
+end

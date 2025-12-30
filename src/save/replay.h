@@ -8,13 +8,30 @@
 typedef enum {
     REPLAY_EVENT_HOVER = 1,
     REPLAY_EVENT_CLICK = 2,
+    REPLAY_EVENT_EXPECT_ILLEGAL = 3,
+    REPLAY_EVENT_ASSERT_TURN = 4,
+    REPLAY_EVENT_ASSERT_PHASE = 5,
+    REPLAY_EVENT_ASSERT_CASTLE = 6,
+    REPLAY_EVENT_ASSERT_EN_PASSANT = 7,
 } ReplayEventType;
+// Event text format (one per line after "events"):
+//   t hover file rank
+//   t click file rank
+//   t expect_illegal_move file rank      // click that must NOT change state
+//   t assert_turn N                      // enforce turn_number
+//   t assert_phase PHASE                 // enforce game_phase string
+//   t assert_castle KQkq                 // enforce castling rights
+//   t assert_en_passant file rank        // enforce en passant target
 
 typedef struct {
     uint32_t t_ms;
     ReplayEventType type;
     int8_t file;
     int8_t rank;
+    int8_t aux_file;
+    int8_t aux_rank;
+    int32_t arg;
+    char text[24];
 } ReplayEvent;
 
 typedef struct {
@@ -74,5 +91,6 @@ bool replay_load(const char *path, ReplayData *out);
 void replay_free(ReplayData *data);
 bool replay_seed_game(const ReplayStartState *start, GameState *state);
 bool replay_apply_events(const ReplayData *data, GameState *state, bool apply_hover);
+bool replay_apply_event(const ReplayEvent *ev, GameState *state, bool apply_hover, bool enforce_asserts);
 
 uint32_t replay_checksum(const GameState *state);

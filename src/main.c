@@ -72,7 +72,13 @@ int main(int argc, char **argv) {
         replay_seed_game(&replay.start, &game);
         game.show_main_menu = false;
         game.show_pause_menu = false;
-        replay_apply_events(&replay, &game, false);
+        if (!replay_apply_events(&replay, &game, false)) {
+            SDL_Log("Replay application failed (assertion/illegal expectation)");
+            replay_free(&replay);
+            render_shutdown(&render);
+            game_destroy(&game);
+            return 1;
+        }
         uint32_t sum = replay_checksum(&game);
         printf("REPLAY_FILE %s\n", replay_path);
         printf("REPLAY_CHECKSUM %u\n", sum);
@@ -177,10 +183,11 @@ int main(int argc, char **argv) {
                 Uint32 target = live_replay_index * replay_step_ms;
                 if (elapsed < target) break;
                 const ReplayEvent *ev = &live_replay.events[live_replay_index];
-                if (ev->type == REPLAY_EVENT_HOVER) {
-                    game.hover_pos = (BoardPos){ev->file, ev->rank};
-                } else if (ev->type == REPLAY_EVENT_CLICK) {
-                    game_handle_click(&game, ev->file, ev->rank);
+                if (!replay_apply_event(ev, &game, true, test_mode)) {
+                    if (test_mode) {
+                        running = false;
+                    }
+                    break;
                 }
                 live_replay_index++;
             }

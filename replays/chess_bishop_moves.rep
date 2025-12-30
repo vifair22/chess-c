@@ -1,0 +1,25 @@
+CHESSC_REPLAY_V1
+mode chess
+phase play
+white_to_move 1
+turn 0
+castle KQkq
+en_passant -1 -1
+board
+k.......
+........
+.p......
+....P...
+...B....
+........
+........
+.......K
+events
+# Bishop at d4 blocked on NE by own pawn at e5
+0 hover 3 4
+0 click 3 4
+10 expect_illegal_move 5 2
+# Diagonal capture to b6 should succeed (capturing pawn at b6)
+20 click 1 2
+30 assert_turn 1
+end

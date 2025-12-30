@@ -1,0 +1,27 @@
+CHESSC_REPLAY_V1
+mode chess
+phase play
+white_to_move 1
+turn 0
+castle KQkq
+en_passant -1 -1
+board
+........
+........
+...k....
+........
+...K....
+........
+........
+........
+events
+# King at d4: two-step move illegal
+0 hover 3 4
+0 click 3 4
+10 expect_illegal_move 3 2
+# Move adjacent to enemy king (d5) should be illegal
+20 expect_illegal_move 3 3
+# Safe one-step to c4 should succeed
+30 click 2 4
+40 assert_turn 1
+end

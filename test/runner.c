@@ -58,6 +58,8 @@ int main(int argc, char **argv) {
 
     int total = 0;
     int failed = 0;
+    char failed_names[512][260];
+    int failed_count = 0;
 
     if (single_file) {
         if (!_fullpath(file_buf, single_file, sizeof(file_buf))) {
@@ -69,9 +71,18 @@ int main(int argc, char **argv) {
             fprintf(stderr, "Replay file not found: %s\n", single_file);
             return 1;
         }
+        const char *name_only = strrchr(single_file, '\\');
+        name_only = name_only ? name_only + 1 : single_file;
+        printf("\n=== RUN %s ===\n", name_only);
         int res = run_game(exe, single_file, watch);
         ++total;
-        if (res != 0) ++failed;
+        if (res != 0) {
+            ++failed;
+            if (failed_count < 512) {
+                strncpy(failed_names[failed_count++], name_only, sizeof(failed_names[0]) - 1);
+                failed_names[failed_count - 1][sizeof(failed_names[0]) - 1] = '\0';
+            }
+        }
     } else {
         if (!_fullpath(dir_buf, dir, sizeof(dir_buf))) {
             fprintf(stderr, "Bad dir path: %s\n", dir);
@@ -93,15 +104,27 @@ int main(int argc, char **argv) {
             if (find.attrib & _A_SUBDIR) continue;
             char path[512];
             snprintf(path, sizeof(path), "%s\\%s", dir, find.name);
+            printf("\n=== RUN %s ===\n", find.name);
             int res = run_game(exe, path, watch);
             ++total;
             if (res != 0) {
                 ++failed;
+                if (failed_count < 512) {
+                    strncpy(failed_names[failed_count++], find.name, sizeof(failed_names[0]) - 1);
+                    failed_names[failed_count - 1][sizeof(failed_names[0]) - 1] = '\0';
+                }
             }
         } while (_findnext(handle, &find) == 0);
         _findclose(handle);
     }
 
-    printf("TESTS %d FAILED %d PASSED %d\n", total, failed, total - failed);
+    printf("\n=== SUMMARY ===\n");
+    printf("TOTAL %d  PASSED %d  FAILED %d\n", total, total - failed, failed);
+    if (failed_count > 0) {
+        printf("FAILED TESTS:\n");
+        for (int i = 0; i < failed_count; ++i) {
+            printf(" - %s\n", failed_names[i]);
+        }
+    }
     return failed == 0 ? 0 : 1;
 }

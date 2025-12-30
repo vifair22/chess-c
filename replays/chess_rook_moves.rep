@@ -1,0 +1,25 @@
+CHESSC_REPLAY_V1
+mode chess
+phase play
+white_to_move 1
+turn 0
+castle KQkq
+en_passant -1 -1
+board
+k.......
+........
+........
+........
+r..R....
+...P....
+........
+.......K
+events
+# Rook at d4 blocked downward by own pawn at d3; cannot move past it
+0 hover 3 4
+0 click 3 4
+10 expect_illegal_move 3 6
+# Capture left to a4 should succeed
+20 click 0 4
+30 assert_turn 1
+end

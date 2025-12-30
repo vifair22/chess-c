@@ -76,6 +76,7 @@ static void record_event(ReplayRecorder *rec, uint32_t now_ticks, ReplayEventTyp
     ensure_capacity(rec);
     if (rec->event_count >= rec->event_capacity) return;
     ReplayEvent *ev = &rec->events[rec->event_count++];
+    memset(ev, 0, sizeof(*ev));
     ev->t_ms = now_ticks - rec->start_ticks;
     ev->type = type;
     ev->file = (int8_t)file;
@@ -248,13 +249,49 @@ bool replay_load(const char *path, ReplayData *out) {
         parse_line(line, &p);
         if (strcmp(p, "end") == 0) break;
         uint32_t t_ms = 0;
-        char type[16] = {0};
-        int file = 0, rank = 0;
-        if (sscanf(p, "%u %15s %d %d", &t_ms, type, &file, &rank) != 4) {
+        char type[32] = {0};
+        char arg1[32] = {0};
+        char arg2[32] = {0};
+        int tokens = sscanf(p, "%u %31s %31s %31s", &t_ms, type, arg1, arg2);
+        if (tokens < 2) {
             continue;
         }
-        ReplayEventType etype = REPLAY_EVENT_CLICK;
-        if (strcmp(type, "hover") == 0) etype = REPLAY_EVENT_HOVER;
+        ReplayEvent parsed = {0};
+        parsed.t_ms = t_ms;
+        if (strcmp(type, "hover") == 0) {
+            parsed.type = REPLAY_EVENT_HOVER;
+        } else if (strcmp(type, "click") == 0) {
+            parsed.type = REPLAY_EVENT_CLICK;
+        } else if (strcmp(type, "expect_illegal_move") == 0) {
+            parsed.type = REPLAY_EVENT_EXPECT_ILLEGAL;
+        } else if (strcmp(type, "assert_turn") == 0) {
+            parsed.type = REPLAY_EVENT_ASSERT_TURN;
+        } else if (strcmp(type, "assert_phase") == 0) {
+            parsed.type = REPLAY_EVENT_ASSERT_PHASE;
+        } else if (strcmp(type, "assert_castle") == 0) {
+            parsed.type = REPLAY_EVENT_ASSERT_CASTLE;
+        } else if (strcmp(type, "assert_en_passant") == 0) {
+            parsed.type = REPLAY_EVENT_ASSERT_EN_PASSANT;
+        } else {
+            continue; // unknown type
+        }
+
+        if (parsed.type == REPLAY_EVENT_HOVER || parsed.type == REPLAY_EVENT_CLICK || parsed.type == REPLAY_EVENT_EXPECT_ILLEGAL) {
+            if (tokens < 4) continue;
+            parsed.file = (int8_t)atoi(arg1);
+            parsed.rank = (int8_t)atoi(arg2);
+        } else if (parsed.type == REPLAY_EVENT_ASSERT_TURN) {
+            if (tokens < 3) continue;
+            parsed.arg = atoi(arg1);
+        } else if (parsed.type == REPLAY_EVENT_ASSERT_PHASE || parsed.type == REPLAY_EVENT_ASSERT_CASTLE) {
+            if (tokens < 3) continue;
+            strncpy(parsed.text, arg1, sizeof(parsed.text) - 1);
+        } else if (parsed.type == REPLAY_EVENT_ASSERT_EN_PASSANT) {
+            if (tokens < 4) continue;
+            parsed.file = (int8_t)atoi(arg1);
+            parsed.rank = (int8_t)atoi(arg2);
+        }
+
         // grow
         if (out->event_count + 1 > out->event_capacity) {
             size_t new_cap = out->event_capacity ? out->event_capacity * 2 : 64;
@@ -267,10 +304,7 @@ bool replay_load(const char *path, ReplayData *out) {
             out->event_capacity = new_cap;
         }
         ReplayEvent *ev = &out->events[out->event_count++];
-        ev->t_ms = t_ms;
-        ev->type = etype;
-        ev->file = (int8_t)file;
-        ev->rank = (int8_t)rank;
+        *ev = parsed;
     }
 
     fclose(f);
@@ -310,16 +344,81 @@ bool replay_seed_game(const ReplayStartState *start, GameState *state) {
     return true;
 }
 
+static void parse_castle_rights(const char *rights, bool *w_k, bool *w_q, bool *b_k, bool *b_q) {
+    *w_k = strchr(rights, 'K') != NULL;
+    *w_q = strchr(rights, 'Q') != NULL;
+    *b_k = strchr(rights, 'k') != NULL;
+    *b_q = strchr(rights, 'q') != NULL;
+}
+
+bool replay_apply_event(const ReplayEvent *ev, GameState *state, bool apply_hover, bool enforce_asserts) {
+    if (!ev || !state) return false;
+    switch (ev->type) {
+        case REPLAY_EVENT_HOVER:
+            if (apply_hover) {
+                state->hover_pos = (BoardPos){ev->file, ev->rank};
+            }
+            return true;
+        case REPLAY_EVENT_CLICK:
+            game_handle_click(state, ev->file, ev->rank);
+            return true;
+        case REPLAY_EVENT_EXPECT_ILLEGAL: {
+            uint32_t before = replay_checksum(state);
+            int before_turn = state->turn_number;
+            game_handle_click(state, ev->file, ev->rank);
+            uint32_t after = replay_checksum(state);
+            if (enforce_asserts && (before != after || state->turn_number != before_turn)) {
+                SDL_Log("replay expect_illegal_move failed at (%d,%d): state changed", ev->file, ev->rank);
+                return false;
+            }
+            return true;
+        }
+        case REPLAY_EVENT_ASSERT_TURN:
+            if (enforce_asserts && state->turn_number != ev->arg) {
+                SDL_Log("replay assert_turn failed: expected %d got %d", ev->arg, state->turn_number);
+                return false;
+            }
+            return true;
+        case REPLAY_EVENT_ASSERT_PHASE:
+            if (enforce_asserts && strncmp(state->game_phase, ev->text, sizeof(state->game_phase)) != 0) {
+                SDL_Log("replay assert_phase failed: expected %s got %s", ev->text, state->game_phase);
+                return false;
+            }
+            return true;
+        case REPLAY_EVENT_ASSERT_CASTLE: {
+            if (!enforce_asserts) return true;
+            bool wk, wq, bk, bq;
+            parse_castle_rights(ev->text, &wk, &wq, &bk, &bq);
+            if (wk != state->white_can_castle_kingside ||
+                wq != state->white_can_castle_queenside ||
+                bk != state->black_can_castle_kingside ||
+                bq != state->black_can_castle_queenside) {
+                SDL_Log("replay assert_castle failed: expected rights %s", ev->text);
+                return false;
+            }
+            return true;
+        }
+        case REPLAY_EVENT_ASSERT_EN_PASSANT:
+            if (enforce_asserts &&
+                (state->en_passant_target.file != ev->file ||
+                 state->en_passant_target.rank != ev->rank)) {
+                SDL_Log("replay assert_en_passant failed: expected (%d,%d) got (%d,%d)",
+                    ev->file, ev->rank,
+                    state->en_passant_target.file, state->en_passant_target.rank);
+                return false;
+            }
+            return true;
+        default:
+            return true;
+    }
+}
+
 bool replay_apply_events(const ReplayData *data, GameState *state, bool apply_hover) {
     if (!data || !state) return false;
     for (size_t i = 0; i < data->event_count; ++i) {
         const ReplayEvent *ev = &data->events[i];
-        if (ev->type == REPLAY_EVENT_HOVER) {
-            if (apply_hover) {
-                state->hover_pos = (BoardPos){ev->file, ev->rank};
-            }
-        } else if (ev->type == REPLAY_EVENT_CLICK) {
-            game_handle_click(state, ev->file, ev->rank);
+        if (!replay_apply_event(ev, state, apply_hover, true)) {
+            return false;
         }
     }
     // If the replay encodes a desired final phase (e.g., resignation/draw agreed),

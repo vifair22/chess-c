@@ -1,0 +1,23 @@
+CHESSC_REPLAY_V1
+mode chess
+phase play
+white_to_move 1
+turn 0
+castle KQkq
+en_passant -1 -1
+board
+rnbqkbnr
+pppppppp
+........
+........
+........
+........
+PPPPPPPP
+RNBQKBNR
+events
+0 hover 4 7
+0 click 4 7
+10 expect_illegal_move 6 7
+20 assert_turn 0
+30 assert_castle KQkq
+end

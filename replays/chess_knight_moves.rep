@@ -1,0 +1,25 @@
+CHESSC_REPLAY_V1
+mode chess
+phase play
+white_to_move 1
+turn 0
+castle KQkq
+en_passant -1 -1
+board
+k.......
+........
+....p...
+........
+...N....
+........
+........
+.......K
+events
+# Knight at d4: non-L move illegal
+0 hover 3 4
+0 click 3 4
+10 expect_illegal_move 3 3
+# Capture on e6 should succeed (L-shape)
+20 click 4 2
+30 assert_turn 1
+end
