@@ -1,7 +1,7 @@
 CHESSC_REPLAY_V1
 mode chess
 phase play
-white_to_move 1
+white_to_move 0
 turn 0
 castle KQkq
 en_passant -1 -1
@@ -9,21 +9,19 @@ board
 .......k
 ...p....
 ........
-........
-........
-........
 ....P...
+........
+........
+........
 .......K
 events
-# White: e2->e4
-0 hover 4 6
-0 click 4 6
-10 click 4 4
-# Black: d7->d5
-20 hover 3 1
-20 click 3 1
-30 click 3 3
-# Assert en passant target and legal capture
-40 assert_en_passant 3 2
-50 assert_legal 4 4 allowed=4:3,3:3 forbidden=5:3
+# Position: white pawn already on e5 (rank 3), black to move.
+# Black double-push d7->d5 should expose en passant to d6.
+0 hover 3 1
+0 click 3 1
+10 click 3 3
+# Assert en passant target and legal capture from white pawn on e5
+20 assert_en_passant 3 2
+30 assert_turn 1
+40 assert_legal 4 3 allowed=4:2,3:2 forbidden=5:2
 end
