@@ -1,6 +1,3 @@
-3) Castling
-Illegals: in-check, through-check, destination in check, path blocked, king/rook moved then moved back (rights lost), rook captured (rights lost). Legals: both sides when clear. Assertions: assert_castle rights; legal set presence/absence for castling based on rights/attacks.
-
 4) Promotion
 Legal promotions to all allowed pieces (underpromotions). Illegal: wrong rank, invalid piece, blocked path. Assertions: final piece type/board; absence of illegal promotion destinations in legal set.
 

@@ -1,0 +1,28 @@
+CHESSC_REPLAY_V1
+mode chess
+phase play
+white_to_move 1
+turn 0
+castle KQkq
+en_passant -1 -1
+board
+rnbqkbnr
+pppppppp
+........
+........
+........
+........
+PPPPPPPP
+RNBQKBNR
+events
+# Block kingside path with a knight on f1
+0 hover 5 7
+0 click 5 7
+10 click 5 5
+20 assert_legal 4 7 allowed= forbidden=6:7
+# Block queenside path with a knight on b1
+30 hover 1 7
+30 click 1 7
+40 click 1 5
+50 assert_legal 4 7 allowed= forbidden=2:7
+end

@@ -1,0 +1,21 @@
+CHESSC_REPLAY_V1
+mode chess
+phase play
+white_to_move 1
+turn 0
+castle Kkq
+en_passant -1 -1
+board
+....k..r
+........
+........
+........
+........
+........
+........
+....K..R
+events
+# White a1 rook already gone; queenside right should be missing
+0 assert_castle Kkq
+10 assert_legal 4 7 allowed=6:7,3:7,5:7,3:6,4:6,5:6 forbidden=2:7
+end

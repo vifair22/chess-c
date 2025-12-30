@@ -1,0 +1,33 @@
+CHESSC_REPLAY_V1
+mode chess
+phase play
+white_to_move 0
+turn 0
+castle kq
+en_passant -1 -1
+board
+r...k..r
+........
+........
+........
+........
+........
+P.......
+....K...
+events
+# Move black queenside rook off and back; black queenside right should be lost
+0 hover 0 0
+0 click 0 0
+10 click 0 1
+20 hover 0 6
+20 click 0 6
+30 click 0 5
+40 hover 0 1
+40 click 0 1
+50 click 0 0
+60 hover 0 5
+60 click 0 5
+70 click 0 4
+80 assert_castle k
+90 assert_legal 4 0 allowed=6:0,3:0,5:0,3:1,4:1,5:1 forbidden=2:0
+end

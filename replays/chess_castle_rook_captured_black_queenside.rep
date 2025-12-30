@@ -1,0 +1,21 @@
+CHESSC_REPLAY_V1
+mode chess
+phase play
+white_to_move 0
+turn 0
+castle Kk
+en_passant -1 -1
+board
+....k..r
+........
+........
+........
+........
+........
+........
+....K..R
+events
+# Black a8 rook already gone; black queenside right should be missing
+0 assert_castle Kk
+10 assert_legal 4 0 allowed=6:0,3:0,5:0,3:1,4:1,5:1 forbidden=2:0
+end

@@ -18,7 +18,15 @@ static int run_game(const char *exe, const char *rep, int watch, char *reason, s
     char line[512];
     bool saw_result = false;
     bool pass = false;
+    char last_info[256] = {0};
     while (fgets(line, sizeof(line), fp)) {
+        if (strncmp(line, "INFO:", 5) == 0 || strncmp(line, "WARN:", 5) == 0 || strncmp(line, "ERROR:", 6) == 0) {
+            // Capture last log line for better failure context.
+            strncpy(last_info, line, sizeof(last_info) - 1);
+            last_info[sizeof(last_info) - 1] = '\0';
+            size_t len = strlen(last_info);
+            if (len > 0 && (last_info[len - 1] == '\n' || last_info[len - 1] == '\r')) last_info[len - 1] = '\0';
+        }
         if (strncmp(line, "RESULT ", 7) == 0) {
             saw_result = true;
             pass = strstr(line, "PASS") != NULL;
@@ -34,7 +42,13 @@ static int run_game(const char *exe, const char *rep, int watch, char *reason, s
 
     // Require both: process exited cleanly AND a RESULT line that says PASS.
     if (rc != 0) {
-        if (reason && reason_sz > 0) snprintf(reason, reason_sz, "exit code %d", rc);
+        if (reason && reason_sz > 0) {
+            if (last_info[0]) {
+                snprintf(reason, reason_sz, "%s", last_info);
+            } else {
+                snprintf(reason, reason_sz, "exit code %d", rc);
+            }
+        }
         return 1;
     }
     if (!saw_result) {
@@ -42,7 +56,13 @@ static int run_game(const char *exe, const char *rep, int watch, char *reason, s
         return 1;
     }
     if (!pass) {
-        if (reason && reason_sz > 0) snprintf(reason, reason_sz, "RESULT FAIL");
+        if (reason && reason_sz > 0) {
+            if (last_info[0]) {
+                snprintf(reason, reason_sz, "%s", last_info);
+            } else {
+                snprintf(reason, reason_sz, "RESULT FAIL");
+            }
+        }
         return 1;
     }
     if (reason && reason_sz > 0) snprintf(reason, reason_sz, "PASS");
