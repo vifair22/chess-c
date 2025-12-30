@@ -2,28 +2,12 @@
 
 #include <stdint.h>
 #include <stdio.h>
-#include <ctype.h>
-
+#include <string.h>
 #include "game/logic.h"
 #include "renderer/draw.h"
 #include "renderer/palette.h"
 #include "renderer/debug_overlay.h"
 #include "renderer/ui.h"
-
-typedef struct {
-    char id;
-    uint8_t rows[7]; // 5-bit wide bitmap per row
-} Glyph;
-
-static const Glyph GLYPHS[] = {
-    // 5x7 silhouettes for chess pieces (rows are MSB-left).
-    {'P', {0x04, 0x0E, 0x04, 0x0E, 0x0E, 0x1F, 0x0A}}, // pawn: head, stem, rounded base
-    {'N', {0x06, 0x0E, 0x0C, 0x0F, 0x07, 0x1F, 0x0E}}, // knight: arched neck + jaw
-    {'B', {0x04, 0x0E, 0x04, 0x0E, 0x0A, 0x1F, 0x0A}}, // bishop: mitre notch and base
-    {'R', {0x15, 0x1F, 0x1F, 0x0E, 0x0E, 0x1F, 0x1F}}, // rook: crenellations + tower
-    {'Q', {0x15, 0x0A, 0x1F, 0x0E, 0x1F, 0x1F, 0x0E}}, // queen: crown with jewel
-    {'K', {0x04, 0x1F, 0x0A, 0x0E, 0x0A, 0x1F, 0x0E}}, // king: cross and brim
-};
 
 static SDL_Texture *load_texture(SDL_Renderer *renderer, const char *path) {
     SDL_Surface *surf = SDL_LoadBMP(path);
@@ -35,6 +19,10 @@ static SDL_Texture *load_texture(SDL_Renderer *renderer, const char *path) {
     SDL_FreeSurface(surf);
     if (!tex) {
         SDL_Log("SDL_CreateTextureFromSurface failed for %s: %s", path, SDL_GetError());
+        return NULL;
+    }
+    if (SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND) != 0) {
+        SDL_Log("SDL_SetTextureBlendMode failed for %s: %s", path, SDL_GetError());
     }
     return tex;
 }
@@ -61,14 +49,52 @@ static SDL_Texture *texture_for_piece(RenderContext *ctx, char piece) {
     return ctx->piece_textures[idx];
 }
 
-static const Glyph *find_glyph(char piece) {
-    char upper = (piece >= 'a' && piece <= 'z') ? (char)(piece - 32) : piece;
-    for (size_t i = 0; i < sizeof(GLYPHS) / sizeof(GLYPHS[0]); ++i) {
-        if (GLYPHS[i].id == upper) {
-            return &GLYPHS[i];
-        }
+static bool draw_piece_texture(SDL_Renderer *renderer, SDL_Texture *tex, int cell, int center_x, int center_y) {
+    if (!tex) {
+        return false;
     }
-    return NULL;
+
+    int tw = 0, th = 0;
+    if (SDL_QueryTexture(tex, NULL, NULL, &tw, &th) != 0 || tw <= 0 || th <= 0) {
+        return false;
+    }
+
+    int target = cell * 9 / 10;
+    if (target < 8) target = cell;
+    int denom = (tw > th) ? tw : th;
+    if (denom <= 0) {
+        return false;
+    }
+    double scale = (double)target / (double)denom;
+    int dw = (int)(tw * scale);
+    int dh = (int)(th * scale);
+    if (dw <= 0 || dh <= 0) {
+        return false;
+    }
+
+    SDL_Rect dst = {
+        center_x - dw / 2,
+        center_y - dh / 2,
+        dw,
+        dh
+    };
+    SDL_Rect shadow = dst;
+    shadow.x += cell / 12;
+    shadow.y += cell / 12;
+
+    SDL_SetTextureColorMod(tex, 30, 30, 30);
+    SDL_SetTextureAlphaMod(tex, 180);
+    if (SDL_RenderCopy(renderer, tex, NULL, &shadow) != 0) {
+        SDL_Log("SDL_RenderCopy (shadow) failed: %s", SDL_GetError());
+        return false;
+    }
+    SDL_SetTextureColorMod(tex, 255, 255, 255);
+    SDL_SetTextureAlphaMod(tex, 255);
+    if (SDL_RenderCopy(renderer, tex, NULL, &dst) != 0) {
+        SDL_Log("SDL_RenderCopy (piece) failed: %s", SDL_GetError());
+        return false;
+    }
+    return true;
 }
 
 bool render_init(RenderContext *ctx, const char *title, int width, int height) {
@@ -103,7 +129,7 @@ bool render_init(RenderContext *ctx, const char *title, int width, int height) {
     memset(ctx->hover_alpha, 0, sizeof(ctx->hover_alpha));
     memset(ctx->check_alpha, 0, sizeof(ctx->check_alpha));
 
-    // Load chess piece textures (BMP versions of provided PNG assets).
+    // Load chess piece textures.
     const char *paths[12] = {
         "assets/chess/white_pawn.bmp",
         "assets/chess/white_knight.bmp",
@@ -122,32 +148,6 @@ bool render_init(RenderContext *ctx, const char *title, int width, int height) {
         ctx->piece_textures[i] = load_texture(ctx->renderer, paths[i]);
     }
     return true;
-}
-
-static void draw_glyph(SDL_Renderer *renderer, const Glyph *glyph, int x, int y, int size, SDL_Color color) {
-    if (!glyph) {
-        return;
-    }
-
-    const int glyph_w = 5;
-    const int glyph_h = 7;
-    int scale = size / 6;
-    if (scale < 2) {
-        scale = 2;
-    }
-    int start_x = x + (size - glyph_w * scale) / 2;
-    int start_y = y + (size - glyph_h * scale) / 2;
-
-    SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
-    for (int row = 0; row < glyph_h; ++row) {
-        uint8_t bits = glyph->rows[row];
-        for (int col = 0; col < glyph_w; ++col) {
-            if (bits & (1 << (glyph_w - 1 - col))) {
-                SDL_Rect pixel = {start_x + col * scale, start_y + row * scale, scale, scale};
-                SDL_RenderFillRect(renderer, &pixel);
-            }
-        }
-    }
 }
 
 static void draw_highlight(SDL_Renderer *renderer, SDL_Rect rect, SDL_Color color) {
@@ -250,88 +250,41 @@ static void draw_board(RenderContext *ctx, const GameState *state, int offset_x,
             char piece = sq->piece;
             if (piece != '.') {
                 bool drawn = false;
-                if (ctx->anim.active && ctx->anim.to_file == file && ctx->anim.to_rank == rank && ctx->anim.piece == piece) {
-                    Uint32 elapsed = now_ms - ctx->anim.start_ms;
-                    float t = ctx->anim.duration_ms > 0 ? (float)elapsed / (float)ctx->anim.duration_ms : 1.0f;
-                    if (t >= 1.0f) {
-                        ctx->anim.active = false;
-                        t = 1.0f;
-                    }
-                    t = t * t * (3.0f - 2.0f * t); // smoothstep
-                    float x = ctx->anim.from_px.x + (ctx->anim.to_px.x - ctx->anim.from_px.x) * t;
-                    float y = ctx->anim.from_px.y + (ctx->anim.to_px.y - ctx->anim.from_px.y) * t;
-                    SDL_Texture *tex = texture_for_piece(ctx, piece);
-                    if (tex) {
-                        int tw = 0, th = 0;
-                        SDL_QueryTexture(tex, NULL, NULL, &tw, &th);
-                        int target = cell * 9 / 10;
-                        if (target < 8) target = cell;
-                        int denom = (tw > th) ? tw : th;
-                        double scale = denom > 0 ? (double)target / (double)denom : 1.0;
-                        int dw = (int)(tw * scale);
-                        int dh = (int)(th * scale);
-                        SDL_Rect dst = {
-                            (int)(x - dw / 2),
-                            (int)(y - dh / 2),
-                            dw,
-                            dh
-                        };
-                        SDL_Rect shadow = dst;
-                        shadow.x += cell / 12;
-                        shadow.y += cell / 12;
-                        SDL_SetTextureColorMod(tex, 30, 30, 30);
-                        SDL_SetTextureAlphaMod(tex, 180);
-                        SDL_RenderCopy(renderer, tex, NULL, &shadow);
-                        SDL_SetTextureColorMod(tex, 255, 255, 255);
-                        SDL_SetTextureAlphaMod(tex, 255);
-                        SDL_RenderCopy(renderer, tex, NULL, &dst);
-                        drawn = true;
-                    }
-                }
-                if (drawn) {
+                // Skip drawing the piece on its destination square while an animation is active;
+                // the animated overlay is drawn once after the grid to avoid missing cases.
+                if (ctx->anim.active &&
+                    ctx->anim.to_file == file && ctx->anim.to_rank == rank &&
+                    ctx->anim.piece == piece) {
                     continue;
                 }
                 SDL_Texture *tex = texture_for_piece(ctx, piece);
-                if (tex) {
-                    int tw = 0, th = 0;
-                    SDL_QueryTexture(tex, NULL, NULL, &tw, &th);
-                    int target = cell * 9 / 10;
-                    if (target < 8) target = cell;
-                    int denom = (tw > th) ? tw : th;
-                    double scale = denom > 0 ? (double)target / (double)denom : 1.0;
-                    int dw = (int)(tw * scale);
-                    int dh = (int)(th * scale);
-                    SDL_Rect dst = {
-                        r.x + (cell - dw) / 2,
-                        r.y + (cell - dh) / 2,
-                        dw,
-                        dh
-                    };
-                    SDL_Rect shadow = dst;
-                    shadow.x += cell / 12;
-                    shadow.y += cell / 12;
-                    SDL_SetTextureColorMod(tex, 30, 30, 30);
-                    SDL_SetTextureAlphaMod(tex, 180);
-                    SDL_RenderCopy(renderer, tex, NULL, &shadow);
-                    SDL_SetTextureColorMod(tex, 255, 255, 255);
-                    SDL_SetTextureAlphaMod(tex, 255);
-                    SDL_RenderCopy(renderer, tex, NULL, &dst);
+                if (draw_piece_texture(renderer, tex, cell, r.x + cell / 2, r.y + cell / 2)) {
+                    // drawn via texture
                 } else {
                     SDL_Color piece_color = (piece >= 'a' && piece <= 'z') ? kPalette.piece_dark : kPalette.piece_light;
-                    // Simple outline for glyph fallback to keep contrast on light squares.
-                    SDL_Color outline = {30, 30, 30, 200};
-                    SDL_Rect or = {r.x + 1, r.y + 1, cell, cell};
-                    SDL_SetRenderDrawColor(renderer, outline.r, outline.g, outline.b, outline.a);
-                    SDL_RenderFillRect(renderer, &or);
-                    const Glyph *glyph = find_glyph(piece);
-                    if (glyph) {
-                        draw_glyph(renderer, glyph, r.x, r.y, cell, piece_color);
-                    } else {
-                        SDL_SetRenderDrawColor(renderer, piece_color.r, piece_color.g, piece_color.b, piece_color.a);
-                        draw_checker_piece(renderer, piece, &r, piece_color);
-                    }
+                    SDL_SetRenderDrawColor(renderer, piece_color.r, piece_color.g, piece_color.b, piece_color.a);
+                    draw_checker_piece(renderer, piece, &r, piece_color);
                 }
             }
+        }
+    }
+
+    // Draw the animated piece once as an overlay so it renders regardless of board traversal order.
+    if (ctx->anim.active) {
+        Uint32 elapsed = now_ms - ctx->anim.start_ms;
+        float t = ctx->anim.duration_ms > 0 ? (float)elapsed / (float)ctx->anim.duration_ms : 1.0f;
+        if (t >= 1.0f) {
+            ctx->anim.active = false;
+            t = 1.0f;
+        }
+        t = t * t * (3.0f - 2.0f * t); // smoothstep
+        float x = ctx->anim.from_px.x + (ctx->anim.to_px.x - ctx->anim.from_px.x) * t;
+        float y = ctx->anim.from_px.y + (ctx->anim.to_px.y - ctx->anim.from_px.y) * t;
+        SDL_Texture *tex = texture_for_piece(ctx, ctx->anim.piece);
+        if (!tex) {
+            SDL_Log("anim overlay skipped: no texture for piece %c", ctx->anim.piece);
+        } else if (!draw_piece_texture(renderer, tex, cell, (int)x, (int)y)) {
+            SDL_Log("anim overlay draw failed for piece %c", ctx->anim.piece);
         }
     }
 }

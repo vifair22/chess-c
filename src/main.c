@@ -20,6 +20,8 @@ int main(int argc, char **argv) {
     size_t live_replay_index = 0;
     Uint32 live_replay_start_ticks = 0;
     bool replay_evaluated = false;
+    bool replay_hold_active = false;
+    Uint32 replay_hold_until = 0;
 
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--record") == 0 && i + 1 < argc) {
@@ -231,9 +233,13 @@ int main(int argc, char **argv) {
                 }
             }
             printf("RESULT %s\n", ok ? "PASS" : "FAIL");
-            SDL_Delay(2000); // hold final frame for visibility in watch mode
-            running = false;
+            replay_hold_active = true;
+            replay_hold_until = SDL_GetTicks() + 2000; // hold final frame for visibility without blocking loop
             replay_evaluated = true;
+        }
+
+        if (replay_hold_active && SDL_GetTicks() >= replay_hold_until) {
+            running = false;
         }
     }
 
