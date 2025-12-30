@@ -1,5 +1,3 @@
-1) Legal set assertions
-Add an assertion mechanism to check full generated moves for a selection (e.g., assert_legal allowed/forbidden) or unit tests on game_eval_legal_moves. Use it in per-piece and rule tests to catch missing/extra moves, not just specific click paths.
 
 2) Per-piece coverage
 - Positions: center, edge, corner for each piece.

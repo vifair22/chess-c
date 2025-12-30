@@ -16,6 +16,7 @@ k.......
 .......K
 events
 # Pawn at e2: backward move illegal
+0 assert_legal 4 6 allowed=3:5 forbidden=4:5,4:4,4:7
 0 hover 4 6
 0 click 4 6
 10 expect_illegal_move 4 7

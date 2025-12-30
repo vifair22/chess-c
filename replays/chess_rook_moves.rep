@@ -16,6 +16,7 @@ r..R....
 .......K
 events
 # Rook at d4 blocked downward by own pawn at d3; cannot move past it
+0 assert_legal 3 4 allowed=3:3,3:2,3:1,3:0,2:4,1:4,0:4,4:4,5:4,6:4,7:4 forbidden=3:5
 0 hover 3 4
 0 click 3 4
 10 expect_illegal_move 3 6

@@ -9,6 +9,8 @@
 #include "renderer/render.h"
 #include "save/replay.h"
 
+static void replay_print_stats(const ReplayData *rep);
+
 int main(int argc, char **argv) {
     const char *record_path = NULL;
     const char *replay_path = NULL;
@@ -72,6 +74,7 @@ int main(int argc, char **argv) {
         replay_seed_game(&replay.start, &game);
         game.show_main_menu = false;
         game.show_pause_menu = false;
+        replay_print_stats(&replay);
         if (!replay_apply_events(&replay, &game, false)) {
             SDL_Log("Replay application failed (assertion/illegal expectation)");
             replay_free(&replay);
@@ -129,6 +132,7 @@ int main(int argc, char **argv) {
             live_replay_active = true;
             live_replay_start_ticks = SDL_GetTicks();
             live_replay_index = 0;
+            replay_print_stats(&live_replay);
         }
     }
 
@@ -263,4 +267,29 @@ int main(int argc, char **argv) {
         replay_free(&live_replay);
     }
     return 0;
+}
+static void replay_print_stats(const ReplayData *rep) {
+    if (!rep) return;
+    size_t total = rep->event_count;
+    size_t expect_illegal = 0;
+    size_t assert_turn = 0, assert_phase = 0, assert_castle = 0, assert_enp = 0, assert_legal = 0;
+    for (size_t i = 0; i < rep->event_count; ++i) {
+        const ReplayEvent *ev = &rep->events[i];
+        switch (ev->type) {
+            case REPLAY_EVENT_EXPECT_ILLEGAL: expect_illegal++; break;
+            case REPLAY_EVENT_ASSERT_TURN: assert_turn++; break;
+            case REPLAY_EVENT_ASSERT_PHASE: assert_phase++; break;
+            case REPLAY_EVENT_ASSERT_CASTLE: assert_castle++; break;
+            case REPLAY_EVENT_ASSERT_EN_PASSANT: assert_enp++; break;
+            case REPLAY_EVENT_ASSERT_LEGAL: assert_legal++; break;
+            default: break;
+        }
+    }
+    printf("REPLAY_EVENTS %zu\n", total);
+    printf("REPLAY_ASSERT_EXPECT_ILLEGAL %zu\n", expect_illegal);
+    printf("REPLAY_ASSERT_TURN %zu\n", assert_turn);
+    printf("REPLAY_ASSERT_PHASE %zu\n", assert_phase);
+    printf("REPLAY_ASSERT_CASTLE %zu\n", assert_castle);
+    printf("REPLAY_ASSERT_EN_PASSANT %zu\n", assert_enp);
+    printf("REPLAY_ASSERT_LEGAL %zu\n", assert_legal);
 }

@@ -1,0 +1,20 @@
+CHESSC_REPLAY_V1
+mode chess
+phase play
+white_to_move 1
+turn 0
+castle KQkq
+en_passant -1 -1
+board
+.......k
+........
+...p.p..
+........
+.p.R.p..
+........
+...p.p..
+.......K
+events
+# Rook at d4 with enemy blockers on all rays; captures included, stop beyond
+0 assert_legal 3 4 allowed=3:3,3:2,2:4,1:4,4:4,5:4,3:5,3:6 forbidden=3:1,3:7,0:4,6:4
+end

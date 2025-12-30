@@ -16,6 +16,7 @@ k.......
 .......K
 events
 # Bishop at d4 blocked on NE by own pawn at e5
+0 assert_legal 3 4 allowed=2:3,1:2,2:5,1:6,0:7,4:5,5:6,6:7 forbidden=4:3,5:2,6:1
 0 hover 3 4
 0 click 3 4
 10 expect_illegal_move 5 2

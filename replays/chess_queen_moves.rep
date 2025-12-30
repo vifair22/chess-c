@@ -16,6 +16,7 @@ k.......
 .......K
 events
 # Queen at d4 blocked vertically by own pawn at d5; cannot move to d7 through blocker
+0 assert_legal 3 4 allowed=3:5,3:6,3:7,2:4,1:4,0:4,4:4,5:4,6:4,7:4,4:3,5:2,6:1,2:3,1:2,0:1,4:5,5:6,6:7,2:5,1:6,0:7 forbidden=3:3
 0 hover 3 4
 0 click 3 4
 10 expect_illegal_move 3 1

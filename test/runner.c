@@ -4,13 +4,15 @@
 #include <string.h>
 #include <io.h>
 #include <stdbool.h>
+#include <time.h>
 
-static int run_game(const char *exe, const char *rep, int watch) {
+static int run_game(const char *exe, const char *rep, int watch, char *reason, size_t reason_sz, double *duration_sec) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd), "cmd /c \"\"%s\" --replay \"%s\" %s --test\"", exe, rep, watch ? "--no-headless" : "--headless");
+    clock_t start = clock();
     FILE *fp = _popen(cmd, "rt");
     if (!fp) {
-        fprintf(stderr, "FAILED SPAWN %s\n", cmd);
+        if (reason && reason_sz > 0) snprintf(reason, reason_sz, "spawn failed");
         return 1;
     }
     char line[512];
@@ -24,10 +26,27 @@ static int run_game(const char *exe, const char *rep, int watch) {
         fputs(line, stdout);
     }
     int rc = _pclose(fp);
+    double dur = 0.0;
+    if (duration_sec) {
+        dur = (double)(clock() - start) / (double)CLOCKS_PER_SEC;
+        *duration_sec = dur;
+    }
+
     // Require both: process exited cleanly AND a RESULT line that says PASS.
-    if (rc != 0) return 1;
-    if (!saw_result) return 1;
-    return pass ? 0 : 1;
+    if (rc != 0) {
+        if (reason && reason_sz > 0) snprintf(reason, reason_sz, "exit code %d", rc);
+        return 1;
+    }
+    if (!saw_result) {
+        if (reason && reason_sz > 0) snprintf(reason, reason_sz, "no RESULT line");
+        return 1;
+    }
+    if (!pass) {
+        if (reason && reason_sz > 0) snprintf(reason, reason_sz, "RESULT FAIL");
+        return 1;
+    }
+    if (reason && reason_sz > 0) snprintf(reason, reason_sz, "PASS");
+    return 0;
 }
 
 int main(int argc, char **argv) {
@@ -59,6 +78,7 @@ int main(int argc, char **argv) {
     int total = 0;
     int failed = 0;
     char failed_names[512][260];
+    char failed_reasons[512][128];
     int failed_count = 0;
 
     if (single_file) {
@@ -74,14 +94,21 @@ int main(int argc, char **argv) {
         const char *name_only = strrchr(single_file, '\\');
         name_only = name_only ? name_only + 1 : single_file;
         printf("\n=== RUN %s ===\n", name_only);
-        int res = run_game(exe, single_file, watch);
+        char reason[128] = {0};
+        double dur = 0.0;
+        int res = run_game(exe, single_file, watch, reason, sizeof(reason), &dur);
         ++total;
         if (res != 0) {
             ++failed;
             if (failed_count < 512) {
                 strncpy(failed_names[failed_count++], name_only, sizeof(failed_names[0]) - 1);
                 failed_names[failed_count - 1][sizeof(failed_names[0]) - 1] = '\0';
+                strncpy(failed_reasons[failed_count - 1], reason, sizeof(failed_reasons[0]) - 1);
+                failed_reasons[failed_count - 1][sizeof(failed_reasons[0]) - 1] = '\0';
             }
+            printf("-> FAIL (%s) [%.2fs]\n", reason, dur);
+        } else {
+            printf("-> PASS [%.2fs]\n", dur);
         }
     } else {
         if (!_fullpath(dir_buf, dir, sizeof(dir_buf))) {
@@ -105,14 +132,21 @@ int main(int argc, char **argv) {
             char path[512];
             snprintf(path, sizeof(path), "%s\\%s", dir, find.name);
             printf("\n=== RUN %s ===\n", find.name);
-            int res = run_game(exe, path, watch);
+            char reason[128] = {0};
+            double dur = 0.0;
+            int res = run_game(exe, path, watch, reason, sizeof(reason), &dur);
             ++total;
             if (res != 0) {
                 ++failed;
                 if (failed_count < 512) {
                     strncpy(failed_names[failed_count++], find.name, sizeof(failed_names[0]) - 1);
                     failed_names[failed_count - 1][sizeof(failed_names[0]) - 1] = '\0';
+                    strncpy(failed_reasons[failed_count - 1], reason, sizeof(failed_reasons[0]) - 1);
+                    failed_reasons[failed_count - 1][sizeof(failed_reasons[0]) - 1] = '\0';
                 }
+                printf("-> FAIL (%s) [%.2fs]\n", reason, dur);
+            } else {
+                printf("-> PASS [%.2fs]\n", dur);
             }
         } while (_findnext(handle, &find) == 0);
         _findclose(handle);
@@ -123,7 +157,7 @@ int main(int argc, char **argv) {
     if (failed_count > 0) {
         printf("FAILED TESTS:\n");
         for (int i = 0; i < failed_count; ++i) {
-            printf(" - %s\n", failed_names[i]);
+            printf(" - %s (%s)\n", failed_names[i], failed_reasons[i]);
         }
     }
     return failed == 0 ? 0 : 1;

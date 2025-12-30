@@ -248,48 +248,83 @@ bool replay_load(const char *path, ReplayData *out) {
     while (fgets(line, sizeof(line), f)) {
         parse_line(line, &p);
         if (strcmp(p, "end") == 0) break;
-        uint32_t t_ms = 0;
+        char work[256];
+        strncpy(work, p, sizeof(work) - 1);
+        work[sizeof(work) - 1] = '\0';
+
+        char *tok = strtok(work, " ");
+        if (!tok) continue;
+        uint32_t t_ms = (uint32_t)strtoul(tok, NULL, 10);
+
+        tok = strtok(NULL, " ");
+        if (!tok) continue;
         char type[32] = {0};
-        char arg1[32] = {0};
-        char arg2[32] = {0};
-        int tokens = sscanf(p, "%u %31s %31s %31s", &t_ms, type, arg1, arg2);
-        if (tokens < 2) {
-            continue;
-        }
+        strncpy(type, tok, sizeof(type) - 1);
+
         ReplayEvent parsed = {0};
         parsed.t_ms = t_ms;
+
         if (strcmp(type, "hover") == 0) {
             parsed.type = REPLAY_EVENT_HOVER;
+            char *fstr = strtok(NULL, " ");
+            char *rstr = strtok(NULL, " ");
+            if (!fstr || !rstr) continue;
+            parsed.file = (int8_t)atoi(fstr);
+            parsed.rank = (int8_t)atoi(rstr);
         } else if (strcmp(type, "click") == 0) {
             parsed.type = REPLAY_EVENT_CLICK;
+            char *fstr = strtok(NULL, " ");
+            char *rstr = strtok(NULL, " ");
+            if (!fstr || !rstr) continue;
+            parsed.file = (int8_t)atoi(fstr);
+            parsed.rank = (int8_t)atoi(rstr);
         } else if (strcmp(type, "expect_illegal_move") == 0) {
             parsed.type = REPLAY_EVENT_EXPECT_ILLEGAL;
+            char *fstr = strtok(NULL, " ");
+            char *rstr = strtok(NULL, " ");
+            if (!fstr || !rstr) continue;
+            parsed.file = (int8_t)atoi(fstr);
+            parsed.rank = (int8_t)atoi(rstr);
         } else if (strcmp(type, "assert_turn") == 0) {
             parsed.type = REPLAY_EVENT_ASSERT_TURN;
-        } else if (strcmp(type, "assert_phase") == 0) {
-            parsed.type = REPLAY_EVENT_ASSERT_PHASE;
-        } else if (strcmp(type, "assert_castle") == 0) {
-            parsed.type = REPLAY_EVENT_ASSERT_CASTLE;
+            char *n = strtok(NULL, " ");
+            if (!n) continue;
+            parsed.arg = atoi(n);
+        } else if (strcmp(type, "assert_phase") == 0 || strcmp(type, "assert_castle") == 0) {
+            parsed.type = (type[7] == 'p') ? REPLAY_EVENT_ASSERT_PHASE : REPLAY_EVENT_ASSERT_CASTLE;
+            char *txt = strtok(NULL, " ");
+            if (!txt) continue;
+            strncpy(parsed.text, txt, sizeof(parsed.text) - 1);
         } else if (strcmp(type, "assert_en_passant") == 0) {
             parsed.type = REPLAY_EVENT_ASSERT_EN_PASSANT;
+            char *fstr = strtok(NULL, " ");
+            char *rstr = strtok(NULL, " ");
+            if (!fstr || !rstr) continue;
+            parsed.file = (int8_t)atoi(fstr);
+            parsed.rank = (int8_t)atoi(rstr);
+        } else if (strcmp(type, "assert_legal") == 0) {
+            parsed.type = REPLAY_EVENT_ASSERT_LEGAL;
+            char *fsel = strtok(NULL, " ");
+            char *rsel = strtok(NULL, " ");
+            if (!fsel || !rsel) continue;
+            parsed.file = (int8_t)atoi(fsel);
+            parsed.rank = (int8_t)atoi(rsel);
+            char *token = NULL;
+            char allowed_buf[128] = "-";
+            char forbidden_buf[128] = "-";
+            while ((token = strtok(NULL, " "))) {
+                if (strncmp(token, "allowed=", 8) == 0) {
+                    strncpy(allowed_buf, token + 8, sizeof(allowed_buf) - 1);
+                    allowed_buf[sizeof(allowed_buf) - 1] = '\0';
+                } else if (strncmp(token, "forbidden=", 10) == 0) {
+                    strncpy(forbidden_buf, token + 10, sizeof(forbidden_buf) - 1);
+                    forbidden_buf[sizeof(forbidden_buf) - 1] = '\0';
+                }
+            }
+            parsed.allowed_count = parse_square_list(allowed_buf, parsed.allowed_files, parsed.allowed_ranks, 64);
+            parsed.forbidden_count = parse_square_list(forbidden_buf, parsed.forbidden_files, parsed.forbidden_ranks, 64);
         } else {
             continue; // unknown type
-        }
-
-        if (parsed.type == REPLAY_EVENT_HOVER || parsed.type == REPLAY_EVENT_CLICK || parsed.type == REPLAY_EVENT_EXPECT_ILLEGAL) {
-            if (tokens < 4) continue;
-            parsed.file = (int8_t)atoi(arg1);
-            parsed.rank = (int8_t)atoi(arg2);
-        } else if (parsed.type == REPLAY_EVENT_ASSERT_TURN) {
-            if (tokens < 3) continue;
-            parsed.arg = atoi(arg1);
-        } else if (parsed.type == REPLAY_EVENT_ASSERT_PHASE || parsed.type == REPLAY_EVENT_ASSERT_CASTLE) {
-            if (tokens < 3) continue;
-            strncpy(parsed.text, arg1, sizeof(parsed.text) - 1);
-        } else if (parsed.type == REPLAY_EVENT_ASSERT_EN_PASSANT) {
-            if (tokens < 4) continue;
-            parsed.file = (int8_t)atoi(arg1);
-            parsed.rank = (int8_t)atoi(arg2);
         }
 
         // grow
@@ -351,6 +386,33 @@ static void parse_castle_rights(const char *rights, bool *w_k, bool *w_q, bool *
     *b_q = strchr(rights, 'q') != NULL;
 }
 
+static int parse_square_list(const char *list, int8_t *files, int8_t *ranks, int max) {
+    if (!list || !files || !ranks || max <= 0) return 0;
+    if (strcmp(list, "-") == 0) return 0;
+    int count = 0;
+    char buf[128];
+    strncpy(buf, list, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+    char *token = strtok(buf, ",");
+    while (token && count < max) {
+        int f = -1, r = -1;
+        if (sscanf(token, "%d:%d", &f, &r) == 2) {
+            files[count] = (int8_t)f;
+            ranks[count] = (int8_t)r;
+            count++;
+        }
+        token = strtok(NULL, ",");
+    }
+    return count;
+}
+
+static bool square_in_list(int f, int r, const int8_t *files, const int8_t *ranks, int count) {
+    for (int i = 0; i < count; ++i) {
+        if (files[i] == f && ranks[i] == r) return true;
+    }
+    return false;
+}
+
 bool replay_apply_event(const ReplayEvent *ev, GameState *state, bool apply_hover, bool enforce_asserts) {
     if (!ev || !state) return false;
     switch (ev->type) {
@@ -408,6 +470,50 @@ bool replay_apply_event(const ReplayEvent *ev, GameState *state, bool apply_hove
                 return false;
             }
             return true;
+        case REPLAY_EVENT_ASSERT_LEGAL: {
+            if (!enforce_asserts) return true;
+            game_eval_legal_moves(state, ev->file, ev->rank);
+            // Ensure required moves are present.
+            for (int i = 0; i < ev->allowed_count; ++i) {
+                int f = ev->allowed_files[i];
+                int r = ev->allowed_ranks[i];
+                if (f < 0 || f >= 8 || r < 0 || r >= 8) {
+                    SDL_Log("replay assert_legal: allowed square out of bounds %d:%d", f, r);
+                    return false;
+                }
+                if (!(state->legal_moves[r][f].flags & MOVE_LEGAL)) {
+                    SDL_Log("replay assert_legal failed: expected legal %d:%d not found", f, r);
+                    return false;
+                }
+            }
+            // Ensure forbidden moves are absent.
+            for (int i = 0; i < ev->forbidden_count; ++i) {
+                int f = ev->forbidden_files[i];
+                int r = ev->forbidden_ranks[i];
+                if (f < 0 || f >= 8 || r < 0 || r >= 8) {
+                    SDL_Log("replay assert_legal: forbidden square out of bounds %d:%d", f, r);
+                    return false;
+                }
+                if (state->legal_moves[r][f].flags & MOVE_LEGAL) {
+                    SDL_Log("replay assert_legal failed: square %d:%d should be illegal", f, r);
+                    return false;
+                }
+            }
+            // If allowed list provided, reject any extra legal moves.
+            if (ev->allowed_count > 0) {
+                for (int r = 0; r < 8; ++r) {
+                    for (int f = 0; f < 8; ++f) {
+                        if (state->legal_moves[r][f].flags & MOVE_LEGAL) {
+                            if (!square_in_list(f, r, ev->allowed_files, ev->allowed_ranks, ev->allowed_count)) {
+                                SDL_Log("replay assert_legal failed: unexpected legal square %d:%d", f, r);
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+            return true;
+        }
         default:
             return true;
     }

@@ -16,6 +16,7 @@ board
 ........
 events
 # King at d4: two-step move illegal
+0 assert_legal 3 4 allowed=2:4,4:4,2:5,3:5,4:5 forbidden=3:2,3:3,2:3,4:3,2:2,4:2
 0 hover 3 4
 0 click 3 4
 10 expect_illegal_move 3 2

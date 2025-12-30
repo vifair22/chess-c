@@ -13,6 +13,7 @@ typedef enum {
     REPLAY_EVENT_ASSERT_PHASE = 5,
     REPLAY_EVENT_ASSERT_CASTLE = 6,
     REPLAY_EVENT_ASSERT_EN_PASSANT = 7,
+    REPLAY_EVENT_ASSERT_LEGAL = 8,
 } ReplayEventType;
 // Event text format (one per line after "events"):
 //   t hover file rank
@@ -22,6 +23,7 @@ typedef enum {
 //   t assert_phase PHASE                 // enforce game_phase string
 //   t assert_castle KQkq                 // enforce castling rights
 //   t assert_en_passant file rank        // enforce en passant target
+//   t assert_legal sel_file sel_rank allowed=f:r,f:r forbidden=f:r   // enforce legal move set for selected piece (use file:rank pairs, optional, use "-" to skip)
 
 typedef struct {
     uint32_t t_ms;
@@ -32,6 +34,12 @@ typedef struct {
     int8_t aux_rank;
     int32_t arg;
     char text[24];
+    int8_t allowed_files[64];
+    int8_t allowed_ranks[64];
+    int allowed_count;
+    int8_t forbidden_files[64];
+    int8_t forbidden_ranks[64];
+    int forbidden_count;
 } ReplayEvent;
 
 typedef struct {
