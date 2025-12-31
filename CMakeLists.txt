@@ -15,6 +15,7 @@ add_executable(chess-c
     src/renderer/draw.c
     src/renderer/render.c
     src/renderer/palette.c
+    src/renderer/assets.c
     src/renderer/ui.c
     src/renderer/debug_overlay.c
     src/input/keyboard.c

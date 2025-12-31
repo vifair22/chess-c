@@ -1,28 +1,39 @@
 #include "renderer/render.h"
 
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include "game/logic.h"
 #include "renderer/draw.h"
+#include "renderer/assets.h"
 #include "renderer/palette.h"
 #include "renderer/debug_overlay.h"
 #include "renderer/ui.h"
 
-static SDL_Texture *load_texture(SDL_Renderer *renderer, const char *path) {
-    SDL_Surface *surf = SDL_LoadBMP(path);
-    if (!surf) {
-        SDL_Log("SDL_LoadBMP failed for %s: %s", path, SDL_GetError());
+static SDL_Texture *create_texture_from_sprite(SDL_Renderer *renderer, const PieceSprite *sprite) {
+    if (!sprite || !renderer) {
         return NULL;
+    }
+    SDL_Surface *surf = SDL_CreateRGBSurfaceWithFormat(0, sprite->width, sprite->height, 32, SDL_PIXELFORMAT_RGBA32);
+    if (!surf) {
+        SDL_Log("SDL_CreateRGBSurfaceWithFormat failed: %s", SDL_GetError());
+        return NULL;
+    }
+    uint8_t *dst_bytes = (uint8_t *)surf->pixels;
+    for (int y = 0; y < sprite->height; ++y) {
+        uint32_t *dst = (uint32_t *)(dst_bytes + y * surf->pitch);
+        const uint32_t *src = sprite->pixels + (size_t)y * sprite->width;
+        memcpy(dst, src, sprite->width * sizeof(uint32_t));
     }
     SDL_Texture *tex = SDL_CreateTextureFromSurface(renderer, surf);
     SDL_FreeSurface(surf);
     if (!tex) {
-        SDL_Log("SDL_CreateTextureFromSurface failed for %s: %s", path, SDL_GetError());
+        SDL_Log("SDL_CreateTextureFromSurface (mask) failed: %s", SDL_GetError());
         return NULL;
     }
     if (SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND) != 0) {
-        SDL_Log("SDL_SetTextureBlendMode failed for %s: %s", path, SDL_GetError());
+        SDL_Log("SDL_SetTextureBlendMode failed: %s", SDL_GetError());
     }
     return tex;
 }
@@ -79,10 +90,10 @@ static bool draw_piece_texture(SDL_Renderer *renderer, SDL_Texture *tex, int cel
         dh
     };
     SDL_Rect shadow = dst;
-    shadow.x += cell / 12;
-    shadow.y += cell / 12;
+    shadow.x += cell / 8;  // push shadow further so it doesn't peek out on the left
+    shadow.y += cell / 8;
 
-    SDL_SetTextureColorMod(tex, 30, 30, 30);
+    SDL_SetTextureColorMod(tex, 0, 0, 0);   // solid dark shadow regardless of piece tint
     SDL_SetTextureAlphaMod(tex, 180);
     if (SDL_RenderCopy(renderer, tex, NULL, &shadow) != 0) {
         SDL_Log("SDL_RenderCopy (shadow) failed: %s", SDL_GetError());
@@ -128,24 +139,11 @@ bool render_init(RenderContext *ctx, const char *title, int width, int height) {
     memset(ctx->blocked_alpha, 0, sizeof(ctx->blocked_alpha));
     memset(ctx->hover_alpha, 0, sizeof(ctx->hover_alpha));
     memset(ctx->check_alpha, 0, sizeof(ctx->check_alpha));
+    memset(ctx->piece_textures, 0, sizeof(ctx->piece_textures));
 
-    // Load chess piece textures.
-    const char *paths[12] = {
-        "assets/chess/white_pawn.bmp",
-        "assets/chess/white_knight.bmp",
-        "assets/chess/white_bishop.bmp",
-        "assets/chess/white_rook.bmp",
-        "assets/chess/white_queen.bmp",
-        "assets/chess/white_king.bmp",
-        "assets/chess/black_pawn.bmp",
-        "assets/chess/black_knight.bmp",
-        "assets/chess/black_bishop.bmp",
-        "assets/chess/black_rook.bmp",
-        "assets/chess/black_queen.bmp",
-        "assets/chess/black_king.bmp",
-    };
-    for (int i = 0; i < 12; ++i) {
-        ctx->piece_textures[i] = load_texture(ctx->renderer, paths[i]);
+    // Build chess piece textures from embedded masks.
+    for (size_t i = 0; i < kPieceSpriteCount && i < 12; ++i) {
+        ctx->piece_textures[i] = create_texture_from_sprite(ctx->renderer, &kPieceSprites[i]);
     }
     return true;
 }
