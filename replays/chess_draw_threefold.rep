@@ -1,0 +1,28 @@
+CHESSC_REPLAY_V1
+mode chess
+phase play
+white_to_move 1
+turn 0
+castle -
+en_passant -1 -1
+board
+....k.n.
+........
+........
+........
+........
+........
+........
+....K.N.
+expect_phase draw_threefold
+events
+# Cycle knights back and forth twice to repeat the initial position three times.
+0 click 6 7
+10 click 5 5
+20 click 6 0
+30 click 5 2
+40 click 5 5
+50 click 6 7
+60 click 5 2
+70 click 6 0
+end

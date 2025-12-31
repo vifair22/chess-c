@@ -1,0 +1,25 @@
+CHESSC_REPLAY_V1
+mode chess
+phase play
+white_to_move 1
+turn 0
+castle -
+en_passant -1 -1
+board
+........
+........
+........
+........
+........
+........
+........
+R...K..k
+events
+# Select white king then deselect by clicking the same square; state (turn/phase/board) must remain unchanged.
+0 assert_turn 0
+0 hover 4 7
+0 click 4 7
+10 expect_illegal_move 4 7
+20 assert_turn 0
+20 assert_phase play
+end

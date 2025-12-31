@@ -1,0 +1,23 @@
+CHESSC_REPLAY_V1
+mode chess
+phase play
+white_to_move 1
+turn 0
+castle -
+en_passant -1 -1
+board
+r.......
+........
+........
+........
+........
+........
+........
+....K..k
+events
+# White to move; clicking a black piece should not change turn/phase/board.
+0 assert_turn 0
+0 expect_illegal_move 0 0
+10 assert_turn 0
+10 assert_phase play
+end

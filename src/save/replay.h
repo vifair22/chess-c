@@ -47,6 +47,7 @@ typedef struct {
     char game_phase[24];
     bool white_to_move;
     int turn_number;
+    int halfmove_clock;
     bool white_can_castle_kingside;
     bool white_can_castle_queenside;
     bool black_can_castle_kingside;

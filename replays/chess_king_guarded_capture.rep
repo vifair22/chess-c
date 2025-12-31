@@ -1,0 +1,27 @@
+CHESSC_REPLAY_V1
+mode chess
+phase play
+white_to_move 1
+turn 0
+castle -
+en_passant -1 -1
+board
+........
+........
+......k.
+.....p..
+....K...
+........
+........
+........
+events
+# White king on e5; black king on g3; black pawn on f4 guarded by the king.
+# Capturing the pawn would place the white king adjacent to the black king and must be illegal.
+0 assert_legal 4 4 allowed= forbidden=5:3
+0 hover 4 4
+0 click 4 4
+10 expect_illegal_move 5 3
+# A safe king move (left) should still work.
+20 click 3 4
+30 assert_turn 1
+end

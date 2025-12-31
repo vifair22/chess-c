@@ -1,0 +1,26 @@
+CHESSC_REPLAY_V1
+mode chess
+phase play
+white_to_move 1
+turn 0
+castle -
+en_passant -1 -1
+promote_white N
+board
+.......k
+.....P..
+.....KQ.
+........
+........
+........
+........
+........
+events
+# White promotes f7->f8=N; queen on g6 covers g8/h7/g7 while king on f6 covers g7. Black king on h8 has no legal moves and is not in check (stalemate).
+0 assert_legal 5 1 allowed=5:0 forbidden=
+0 hover 5 1
+0 click 5 1
+10 click 5 0
+20 assert_turn 1
+30 assert_phase stalemate
+end

@@ -75,6 +75,9 @@ typedef struct {
     bool show_debug;
     char promotion_choice_white; // desired promotion piece for white (uppercase)
     char promotion_choice_black; // desired promotion piece for black (lowercase)
+    int halfmove_clock; // half-move counter for fifty-move rule
+    uint64_t position_history[512]; // recent position hashes for repetition
+    int position_history_len;
 } GameState;
 
 bool game_init(GameState *state);
@@ -86,3 +89,7 @@ char game_piece_at(const GameState *state, int file, int rank);
 void game_eval_legal_moves(GameState *state, int file, int rank);
 void game_clear_move_flags(GameState *state);
 void game_reset(GameState *state, const char *mode);
+// Recompute check/stalemate/checkmate phase after seeding or external board changes.
+void game_recompute_phase(GameState *state);
+// Reset repetition history (e.g., after seeding a custom board state).
+void game_reset_history(GameState *state);

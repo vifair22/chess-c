@@ -1,0 +1,27 @@
+CHESSC_REPLAY_V1
+mode chess
+phase play
+white_to_move 1
+turn 0
+castle -
+en_passant 3 2
+board
+k...r...
+........
+........
+...pP...
+........
+........
+........
+R...K...
+events
+# En passant from e5 to d6 would open the e-file and expose the white king to the rook on e8 -> illegal.
+0 assert_legal 4 3 allowed=4:2 forbidden=3:2
+0 hover 4 3
+0 click 4 3
+10 expect_illegal_move 3 2
+# A safe rook move should still be legal to prove we are not in stalemate.
+20 click 0 7
+30 click 0 6
+40 assert_turn 1
+end

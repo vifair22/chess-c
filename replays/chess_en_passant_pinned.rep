@@ -1,0 +1,27 @@
+CHESSC_REPLAY_V1
+mode chess
+phase play
+white_to_move 1
+turn 0
+castle -
+en_passant 1 2
+board
+..r...k.
+........
+........
+.pP.....
+........
+........
+........
+..K.....
+events
+# White pawn c5 is pinned on the c-file by the black rook on c8; en passant to b6 would expose the king on c1 -> illegal.
+0 assert_legal 2 3 allowed= forbidden=1:2
+0 hover 2 3
+0 click 2 3
+10 expect_illegal_move 1 2
+# A king sidestep remains legal.
+20 click 2 7
+30 click 1 7
+40 assert_turn 1
+end

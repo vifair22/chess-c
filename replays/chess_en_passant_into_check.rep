@@ -1,0 +1,25 @@
+CHESSC_REPLAY_V1
+mode chess
+phase play
+white_to_move 1
+turn 0
+castle -
+en_passant 3 2
+board
+........
+....k...
+........
+...pP...
+........
+........
+........
+......K.
+events
+# Black pawn on d5 just double-pushed (en_passant target d6). White pawn e5 en passant to d6 should be legal and give check on the king at e7.
+0 assert_legal 4 3 allowed=3:2,4:2 forbidden=
+0 hover 4 3
+0 click 4 3
+10 click 3 2
+20 assert_turn 1
+30 assert_phase check
+end

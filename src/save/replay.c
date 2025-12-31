@@ -25,6 +25,7 @@ static void snapshot_start_state(ReplayStartState *dst, const GameState *state) 
     dst->game_phase[sizeof(dst->game_phase) - 1] = '\0';
     dst->white_to_move = state->white_to_move;
     dst->turn_number = state->turn_number;
+    dst->halfmove_clock = state->halfmove_clock;
     dst->white_can_castle_kingside = state->white_can_castle_kingside;
     dst->white_can_castle_queenside = state->white_can_castle_queenside;
     dst->black_can_castle_kingside = state->black_can_castle_kingside;
@@ -110,6 +111,7 @@ bool replay_recorder_save(const ReplayRecorder *rec, const char *path) {
     fprintf(f, "phase %s\n", rec->start.game_phase);
     fprintf(f, "white_to_move %d\n", rec->start.white_to_move ? 1 : 0);
     fprintf(f, "turn %d\n", rec->start.turn_number);
+    fprintf(f, "halfmove %d\n", rec->start.halfmove_clock);
     char castle[8];
     castle_string(&rec->start, castle, sizeof(castle));
     fprintf(f, "castle %s\n", castle);
@@ -166,6 +168,8 @@ static bool parse_start_state(FILE *f, ReplayStartState *start) {
             start->white_to_move = atoi(p + 14) != 0;
         } else if (strncmp(p, "turn ", 5) == 0) {
             start->turn_number = atoi(p + 5);
+        } else if (strncmp(p, "halfmove ", 9) == 0) {
+            start->halfmove_clock = atoi(p + 9);
         } else if (strncmp(p, "castle ", 7) == 0) {
             const char *c = p + 7;
             start->white_can_castle_kingside = strchr(c, 'K') != NULL;
@@ -365,6 +369,7 @@ bool replay_seed_game(const ReplayStartState *start, GameState *state) {
     state->game_phase[sizeof(state->game_phase) - 1] = '\0';
     state->white_to_move = start->white_to_move;
     state->turn_number = start->turn_number;
+    state->halfmove_clock = start->halfmove_clock;
     state->white_can_castle_kingside = start->white_can_castle_kingside;
     state->white_can_castle_queenside = start->white_can_castle_queenside;
     state->black_can_castle_kingside = start->black_can_castle_kingside;
@@ -376,6 +381,8 @@ bool replay_seed_game(const ReplayStartState *start, GameState *state) {
     state->selected_rank = -1;
     state->hover_pos = (BoardPos){-1, -1};
     game_clear_move_flags(state);
+    game_reset_history(state);
+    game_recompute_phase(state);
     return true;
 }
 

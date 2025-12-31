@@ -43,6 +43,142 @@ static void copy_state_minimal(GameState *dst, const GameState *src) {
     dst->mutex = NULL;
 }
 
+// Simple FNV-1a style hash of the full position (pieces, rights, side to move, en-passant)
+static uint64_t position_hash(const GameState *state) {
+    const uint64_t fnv_offset = 0xcbf29ce484222325ULL;
+    const uint64_t fnv_prime = 0x100000001b3ULL;
+    uint64_t h = fnv_offset;
+    for (int rank = 0; rank < 8; ++rank) {
+        for (int file = 0; file < 8; ++file) {
+            char p = game_piece_at(state, file, rank);
+            // include coordinates to reduce collisions on empty squares
+            uint64_t v = (uint64_t)(uint8_t)p ^ (uint64_t)((rank * 8 + file) + 1);
+            h ^= v;
+            h *= fnv_prime;
+        }
+    }
+    uint64_t rights = 0;
+    if (state->white_can_castle_kingside) rights |= 1ULL;
+    if (state->white_can_castle_queenside) rights |= 2ULL;
+    if (state->black_can_castle_kingside) rights |= 4ULL;
+    if (state->black_can_castle_queenside) rights |= 8ULL;
+    h ^= rights + 0x9e3779b97f4a7c15ULL;
+    h *= fnv_prime;
+    uint64_t ep_file = (uint64_t)(state->en_passant_target.file + 2); // -1 becomes 1
+    uint64_t ep_rank = (uint64_t)(state->en_passant_target.rank + 2);
+    h ^= (ep_file << 8) ^ (ep_rank << 12);
+    h *= fnv_prime;
+    h ^= state->white_to_move ? 0xabc98388fb8fac03ULL : 0;
+    h *= fnv_prime;
+    return h;
+}
+
+static void record_position(GameState *state) {
+    if (!state) return;
+    uint64_t h = position_hash(state);
+    if (state->position_history_len >= (int)(sizeof(state->position_history) / sizeof(state->position_history[0]))) {
+        memmove(state->position_history, state->position_history + 1, (state->position_history_len - 1) * sizeof(uint64_t));
+        state->position_history_len -= 1;
+    }
+    state->position_history[state->position_history_len++] = h;
+}
+
+static void reset_position_history(GameState *state) {
+    if (!state) return;
+    state->position_history_len = 0;
+    record_position(state);
+}
+
+void game_reset_history(GameState *state) {
+    reset_position_history(state);
+}
+
+static int repetition_count(const GameState *state) {
+    if (!state || state->position_history_len <= 0) return 0;
+    uint64_t cur = state->position_history[state->position_history_len - 1];
+    int count = 0;
+    for (int i = 0; i < state->position_history_len; ++i) {
+        if (state->position_history[i] == cur) {
+            count += 1;
+        }
+    }
+    return count;
+}
+
+static bool is_insufficient_material(const GameState *state) {
+    // Detect simple insufficient material cases:
+    // K vs K; K vs K + (B or N); K+B vs K+B with bishops on same color.
+    int white_bishops = 0, black_bishops = 0;
+    int white_knights = 0, black_knights = 0;
+    int other_white = 0, other_black = 0;
+    int white_bishop_dark = 0, white_bishop_light = 0;
+    int black_bishop_dark = 0, black_bishop_light = 0;
+
+    for (int r = 0; r < 8; ++r) {
+        for (int f = 0; f < 8; ++f) {
+            char p = game_piece_at(state, f, r);
+            if (p == '.' || p == 'K' || p == 'k') continue;
+            bool dark = ((f + r) % 2) == 1;
+            switch (p) {
+                case 'B':
+                    white_bishops++;
+                    dark ? white_bishop_dark++ : white_bishop_light++;
+                    break;
+                case 'b':
+                    black_bishops++;
+                    dark ? black_bishop_dark++ : black_bishop_light++;
+                    break;
+                case 'N':
+                    white_knights++;
+                    break;
+                case 'n':
+                    black_knights++;
+                    break;
+                default:
+                    if (is_white_piece(p)) other_white++;
+                    else if (is_black_piece(p)) other_black++;
+                    break;
+            }
+        }
+    }
+
+    if (other_white > 0 || other_black > 0) {
+        return false; // pawns/rooks/queens present
+    }
+
+    // K vs K
+    if ((white_bishops + white_knights + other_white) == 0 &&
+        (black_bishops + black_knights + other_black) == 0) {
+        return true;
+    }
+
+    // K + minor vs K
+    if ((white_bishops + white_knights + other_white) == 1 &&
+        (black_bishops + black_knights + other_black) == 0) {
+        return true;
+    }
+    if ((black_bishops + black_knights + other_black) == 1 &&
+        (white_bishops + white_knights + other_white) == 0) {
+        return true;
+    }
+
+    // K+B vs K+B where all bishops are on the same color squares
+    bool only_bishops =
+        (white_knights + black_knights + other_white + other_black) == 0 &&
+        white_bishops > 0 && black_bishops > 0;
+    if (only_bishops) {
+        bool white_all_dark = white_bishop_dark == white_bishops;
+        bool white_all_light = white_bishop_light == white_bishops;
+        bool black_all_dark = black_bishop_dark == black_bishops;
+        bool black_all_light = black_bishop_light == black_bishops;
+        if ((white_all_dark && black_all_dark) || (white_all_light && black_all_light)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 static void init_board_chess(GameState *state) {
     static const char *start_rows[8] = {
         "rnbqkbnr",
@@ -107,7 +243,7 @@ void game_resign(GameState *state) {
 
 // === Chess logic ===
 
-static void apply_basic_move(GameState *state, int from_file, int from_rank, int to_file, int to_rank, MoveHint hint) {
+static void apply_basic_move(GameState *state, int from_file, int from_rank, int to_file, int to_rank, MoveHint hint, bool update_counters) {
     SquareState *src = board_square_ptr(&state->board_state, from_file, from_rank);
     SquareState *dst = board_square_ptr(&state->board_state, to_file, to_rank);
     char moving = src->piece;
@@ -184,6 +320,13 @@ static void apply_basic_move(GameState *state, int from_file, int from_rank, int
     }
 
     state->white_to_move = !state->white_to_move;
+
+    if (update_counters) {
+        bool pawn_move = moving == 'P' || moving == 'p';
+        bool is_capture = captured != '.' || (hint.flags & MOVE_EN_PASSANT);
+        state->halfmove_clock = (pawn_move || is_capture) ? 0 : state->halfmove_clock + 1;
+        record_position(state);
+    }
 }
 void game_clear_move_flags(GameState *state) {
     for (int rank = 0; rank < 8; ++rank) {
@@ -445,16 +588,41 @@ static void update_game_phase_chess(GameState *state) {
         }
     }
 
-    if (can_move) {
-        const char *phase = check ? "check" : "play";
-        strncpy(state->game_phase, phase, sizeof(state->game_phase) - 1);
-        state->game_phase[sizeof(state->game_phase) - 1] = '\0';
-    } else {
+    if (!can_move) {
         const char *phase = check ? "checkmate" : "stalemate";
         strncpy(state->game_phase, phase, sizeof(state->game_phase) - 1);
         state->game_phase[sizeof(state->game_phase) - 1] = '\0';
+        if (check) {
+            BoardPos king = find_king(state, to_move_white);
+            if (king.file >= 0 && king.rank >= 0) {
+                mark_check_path(state, king.file, king.rank, !to_move_white);
+            }
+        }
+        return;
     }
 
+    bool draw_insufficient = is_insufficient_material(state);
+    bool draw_threefold = repetition_count(state) >= 3;
+    bool draw_fifty = state->halfmove_clock >= 100;
+    if (draw_insufficient) {
+        strncpy(state->game_phase, "draw_insufficient", sizeof(state->game_phase) - 1);
+        state->game_phase[sizeof(state->game_phase) - 1] = '\0';
+        return;
+    }
+    if (draw_threefold) {
+        strncpy(state->game_phase, "draw_threefold", sizeof(state->game_phase) - 1);
+        state->game_phase[sizeof(state->game_phase) - 1] = '\0';
+        return;
+    }
+    if (draw_fifty) {
+        strncpy(state->game_phase, "draw_fifty", sizeof(state->game_phase) - 1);
+        state->game_phase[sizeof(state->game_phase) - 1] = '\0';
+        return;
+    }
+
+    const char *phase = check ? "check" : "play";
+    strncpy(state->game_phase, phase, sizeof(state->game_phase) - 1);
+    state->game_phase[sizeof(state->game_phase) - 1] = '\0';
     if (check) {
         BoardPos king = find_king(state, to_move_white);
         if (king.file >= 0 && king.rank >= 0) {
@@ -769,7 +937,7 @@ static void game_handle_click_chess(GameState *state, int file, int rank) {
     // Apply legal move with metadata (handles castles/en passant/promo).
     state->move_start = (BoardPos){state->selected_file, state->selected_rank};
     state->move_end = (BoardPos){file, rank};
-    apply_basic_move(state, state->selected_file, state->selected_rank, file, rank, hint);
+    apply_basic_move(state, state->selected_file, state->selected_rank, file, rank, hint, true);
 
     update_game_phase_chess(state);
 
@@ -856,7 +1024,7 @@ static void add_move_if_legal(GameState *state, int from_file, int from_rank, in
     }
     GameState tmp;
     copy_state_minimal(&tmp, state);
-    apply_basic_move(&tmp, from_file, from_rank, to_file, to_rank, hint);
+    apply_basic_move(&tmp, from_file, from_rank, to_file, to_rank, hint, false);
     BoardPos king = find_king(&tmp, moving_white);
     if (king.file == -1 || square_attacked_by(&tmp, king.file, king.rank, !moving_white)) {
         return; // leaves or puts own king in check
@@ -1094,6 +1262,18 @@ void game_reset(GameState *state, const char *mode) {
     state->show_debug = true;
     state->promotion_choice_white = 'Q';
     state->promotion_choice_black = 'q';
+    state->halfmove_clock = 0;
+    state->position_history_len = 0;
 
     game_clear_move_flags(state);
+    reset_position_history(state);
+}
+
+void game_recompute_phase(GameState *state) {
+    if (!state) return;
+    if (game_mode_is(state, "checkers")) {
+        update_game_phase_checkers(state);
+    } else {
+        update_game_phase_chess(state);
+    }
 }

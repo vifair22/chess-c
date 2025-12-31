@@ -1,0 +1,34 @@
+CHESSC_REPLAY_V1
+mode chess
+phase play
+white_to_move 0
+turn 0
+castle KQkq
+en_passant -1 -1
+board
+....k...
+........
+........
+........
+r.......
+........
+........
+RR..K...
+events
+# Black rook on a4 captures white rook on a1, removing queenside rights.
+0 click 0 4
+10 click 0 7
+# Castling rights should now drop white queenside.
+15 assert_castle Kkq
+# White recaptures with the second rook to a1, but castling should remain illegal.
+20 click 1 7
+30 click 0 7
+# Black makes a null-ish move to hand the turn back to White.
+40 click 4 0
+50 click 4 1
+# Queenside castling should be forbidden despite an a1 rook being present again.
+60 assert_legal 4 7 allowed=- forbidden=2:7
+60 hover 4 7
+60 click 4 7
+70 expect_illegal_move 2 7
+end

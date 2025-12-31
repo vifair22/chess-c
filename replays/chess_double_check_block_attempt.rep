@@ -1,0 +1,28 @@
+CHESSC_REPLAY_V1
+mode chess
+phase play
+white_to_move 1
+turn 0
+castle -
+en_passant -1 -1
+board
+k...r...
+........
+........
+........
+.......b
+.....n..
+........
+..N.K...
+events
+# Double check on white king e1 from rook e8 and knight f3 (plus bishop h4). Blocking the rook line with a knight move (c1->e2) should be illegal; only king moves are available.
+0 assert_phase check
+0 assert_legal 4 7 allowed=3:7,5:7 forbidden=
+0 hover 2 7
+0 click 2 7
+10 expect_illegal_move 4 6
+20 click 4 7
+30 click 5 7
+40 assert_turn 1
+40 assert_phase play
+end
