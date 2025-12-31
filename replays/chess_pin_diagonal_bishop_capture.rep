@@ -1,0 +1,30 @@
+CHESSC_REPLAY_V1
+mode chess
+phase play
+white_to_move 1
+turn 0
+castle -
+en_passant -1 -1
+board
+........
+........
+........
+........
+.b......
+........
+..B.....
+....K...
+events
+# White bishop on c3 pinned to king e1 by black bishop b4; bishop should not move off the diagonal
+0 assert_legal 2 5 allowed= forbidden=3:6,3:4,1:6,0:7,4:6,4:4
+10 hover 2 5
+10 click 2 5
+20 expect_illegal_move 3 6
+30 expect_illegal_move 3 4
+40 expect_illegal_move 1 6
+50 expect_illegal_move 4 6
+60 expect_illegal_move 4 4
+70 expect_illegal_move 0 7
+80 expect_illegal_move 1 4
+90 assert_turn 0
+end

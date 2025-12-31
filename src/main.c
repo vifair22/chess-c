@@ -75,12 +75,9 @@ int main(int argc, char **argv) {
         game.show_main_menu = false;
         game.show_pause_menu = false;
         replay_print_stats(&replay);
-        if (!replay_apply_events(&replay, &game, false)) {
+        bool apply_ok = replay_apply_events(&replay, &game, false);
+        if (!apply_ok) {
             SDL_Log("Replay application failed (assertion/illegal expectation)");
-            replay_free(&replay);
-            render_shutdown(&render);
-            game_destroy(&game);
-            return 1;
         }
         uint32_t sum = replay_checksum(&game);
         printf("REPLAY_FILE %s\n", replay_path);
@@ -88,29 +85,31 @@ int main(int argc, char **argv) {
         printf("REPLAY_TURN %d\n", game.turn_number);
         printf("REPLAY_PHASE %s\n", game.game_phase);
 
-        bool ok = true;
-        if (replay.has_expect_phase && strncmp(game.game_phase, replay.expect_phase, sizeof(game.game_phase)) != 0) {
-            ok = false;
-            printf("EXPECT_PHASE %s GOT %s\n", replay.expect_phase, game.game_phase);
-        }
-        if (replay.has_expect_turn && game.turn_number != replay.expect_turn) {
-            ok = false;
-            printf("EXPECT_TURN %d GOT %d\n", replay.expect_turn, game.turn_number);
-        }
-        if (replay.has_expect_checksum && sum != replay.expect_checksum) {
-            ok = false;
-            printf("EXPECT_CHECKSUM %u GOT %u\n", replay.expect_checksum, sum);
-        }
-        if (replay.has_expect_board) {
-            for (int r = 0; r < 8; ++r) {
-                char row[9] = {0};
-                for (int f = 0; f < 8; ++f) {
-                    row[f] = game.board_state.squares[r][f].piece;
-                }
-                row[8] = '\0';
-                if (strncmp(row, replay.expect_board[r], 8) != 0) {
-                    ok = false;
-                    printf("EXPECT_BOARD_R%d %s GOT %s\n", r, replay.expect_board[r], row);
+        bool ok = apply_ok;
+        if (apply_ok) {
+            if (replay.has_expect_phase && strncmp(game.game_phase, replay.expect_phase, sizeof(game.game_phase)) != 0) {
+                ok = false;
+                printf("EXPECT_PHASE %s GOT %s\n", replay.expect_phase, game.game_phase);
+            }
+            if (replay.has_expect_turn && game.turn_number != replay.expect_turn) {
+                ok = false;
+                printf("EXPECT_TURN %d GOT %d\n", replay.expect_turn, game.turn_number);
+            }
+            if (replay.has_expect_checksum && sum != replay.expect_checksum) {
+                ok = false;
+                printf("EXPECT_CHECKSUM %u GOT %u\n", replay.expect_checksum, sum);
+            }
+            if (replay.has_expect_board) {
+                for (int r = 0; r < 8; ++r) {
+                    char row[9] = {0};
+                    for (int f = 0; f < 8; ++f) {
+                        row[f] = game.board_state.squares[r][f].piece;
+                    }
+                    row[8] = '\0';
+                    if (strncmp(row, replay.expect_board[r], 8) != 0) {
+                        ok = false;
+                        printf("EXPECT_BOARD_R%d %s GOT %s\n", r, replay.expect_board[r], row);
+                    }
                 }
             }
         }

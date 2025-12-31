@@ -1,0 +1,30 @@
+CHESSC_REPLAY_V1
+mode chess
+phase play
+white_to_move 0
+turn 0
+castle -
+en_passant -1 -1
+board
+........
+....p...
+........
+...P.p..
+........
+........
+........
+....K...
+events
+# Black double-pushes e7->e5, creating en passant target on e6 beside white pawn on d5
+0 click 4 1
+10 click 4 3
+20 assert_en_passant 4 2
+# White pawn on d5 now has two captures: en passant to e6, or normal capture on f5
+30 assert_legal 3 3 allowed=4:2,5:3 forbidden=
+# Take en passant to e6 (4,2)
+40 click 3 3
+50 click 4 2
+60 assert_turn 1
+70 assert_en_passant -1 -1
+80 assert_legal 4 2 allowed= forbidden=3:3
+end
