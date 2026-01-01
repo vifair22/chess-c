@@ -38,23 +38,33 @@ static SDL_Texture *create_texture_from_sprite(SDL_Renderer *renderer, const Pie
     return tex;
 }
 
-static SDL_Texture *texture_for_piece(RenderContext *ctx, char piece) {
-    // Order: 0-5 white (P N B R Q K), 6-11 black
+static SDL_Texture *texture_for_piece(RenderContext *ctx, char piece, bool is_checkers) {
+    // Order: 0-5 white (P N B R Q K), 6-11 black, 12-15 checkers (light man/king, dark man/king)
     int idx = -1;
-    switch (piece) {
-        case 'P': idx = 0; break;
-        case 'N': idx = 1; break;
-        case 'B': idx = 2; break;
-        case 'R': idx = 3; break;
-        case 'Q': idx = 4; break;
-        case 'K': idx = 5; break;
-        case 'p': idx = 6; break;
-        case 'n': idx = 7; break;
-        case 'b': idx = 8; break;
-        case 'r': idx = 9; break;
-        case 'q': idx = 10; break;
-        case 'k': idx = 11; break;
-        default: break;
+    if (is_checkers) {
+        switch (piece) {
+            case 'M': idx = 12; break;
+            case 'K': idx = 13; break;
+            case 'm': idx = 14; break;
+            case 'k': idx = 15; break;
+            default: break;
+        }
+    } else {
+        switch (piece) {
+            case 'P': idx = 0; break;
+            case 'N': idx = 1; break;
+            case 'B': idx = 2; break;
+            case 'R': idx = 3; break;
+            case 'Q': idx = 4; break;
+            case 'K': idx = 5; break;
+            case 'p': idx = 6; break;
+            case 'n': idx = 7; break;
+            case 'b': idx = 8; break;
+            case 'r': idx = 9; break;
+            case 'q': idx = 10; break;
+            case 'k': idx = 11; break;
+            default: break;
+        }
     }
     if (idx < 0) return NULL;
     return ctx->piece_textures[idx];
@@ -142,7 +152,8 @@ bool render_init(RenderContext *ctx, const char *title, int width, int height) {
     memset(ctx->piece_textures, 0, sizeof(ctx->piece_textures));
 
     // Build chess piece textures from embedded masks.
-    for (size_t i = 0; i < kPieceSpriteCount && i < 12; ++i) {
+    size_t tex_cap = sizeof(ctx->piece_textures) / sizeof(ctx->piece_textures[0]);
+    for (size_t i = 0; i < kPieceSpriteCount && i < tex_cap; ++i) {
         ctx->piece_textures[i] = create_texture_from_sprite(ctx->renderer, &kPieceSprites[i]);
     }
     return true;
@@ -177,6 +188,7 @@ static void draw_board(RenderContext *ctx, const GameState *state, int offset_x,
     SDL_Renderer *renderer = ctx->renderer;
     int hover_file = state->hover_pos.file;
     int hover_rank = state->hover_pos.rank;
+    bool is_checkers = strncmp(state->game_mode, "checkers", 8) == 0;
     const float fade_rate = 0.25f;
     // Expire animation if needed.
     if (ctx->anim.active) {
@@ -255,7 +267,7 @@ static void draw_board(RenderContext *ctx, const GameState *state, int offset_x,
                     ctx->anim.piece == piece) {
                     continue;
                 }
-                SDL_Texture *tex = texture_for_piece(ctx, piece);
+                SDL_Texture *tex = texture_for_piece(ctx, piece, is_checkers);
                 if (draw_piece_texture(renderer, tex, cell, r.x + cell / 2, r.y + cell / 2)) {
                     // drawn via texture
                 } else {
@@ -278,7 +290,8 @@ static void draw_board(RenderContext *ctx, const GameState *state, int offset_x,
         t = t * t * (3.0f - 2.0f * t); // smoothstep
         float x = ctx->anim.from_px.x + (ctx->anim.to_px.x - ctx->anim.from_px.x) * t;
         float y = ctx->anim.from_px.y + (ctx->anim.to_px.y - ctx->anim.from_px.y) * t;
-        SDL_Texture *tex = texture_for_piece(ctx, ctx->anim.piece);
+        bool is_checkers = strncmp(state->game_mode, "checkers", 8) == 0;
+        SDL_Texture *tex = texture_for_piece(ctx, ctx->anim.piece, is_checkers);
         if (!tex) {
             SDL_Log("anim overlay skipped: no texture for piece %c", ctx->anim.piece);
         } else if (!draw_piece_texture(renderer, tex, cell, (int)x, (int)y)) {
@@ -452,7 +465,8 @@ void render_frame(RenderContext *ctx, GameState *state) {
 }
 
 void render_shutdown(RenderContext *ctx) {
-    for (int i = 0; i < 12; ++i) {
+    size_t tex_cap = sizeof(ctx->piece_textures) / sizeof(ctx->piece_textures[0]);
+    for (size_t i = 0; i < tex_cap; ++i) {
         if (ctx->piece_textures[i]) {
             SDL_DestroyTexture(ctx->piece_textures[i]);
             ctx->piece_textures[i] = NULL;

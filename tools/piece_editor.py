@@ -49,6 +49,7 @@ class PieceEditor(tk.Tk):
         self.canvas = tk.Canvas(main, width=TARGET_SIZE * CELL_SIZE, height=TARGET_SIZE * CELL_SIZE, bg="#f4f4f4")
         self.canvas.grid(row=0, column=0, padx=(0, 8), pady=2)
         self.canvas.bind("<Button-1>", self._on_canvas_click)
+        self.canvas.bind("<B1-Motion>", self._on_canvas_drag)
 
         sidebar = ttk.Frame(main)
         sidebar.grid(row=0, column=1, sticky="n")
@@ -96,15 +97,27 @@ class PieceEditor(tk.Tk):
         self.output.configure(state="disabled")
 
     def _on_canvas_click(self, event):
+        if self._paint_from_event(event):
+            self._draw_grid()
+
+    def _on_canvas_drag(self, event):
+        if self._paint_from_event(event):
+            self._draw_grid()
+
+    def _paint_from_event(self, event):
         if not self.pieces:
-            return
+            return False
         piece = self.pieces[self.current_idx]
         w, h = piece["width"], piece["height"]
         col = event.x // CELL_SIZE
         row = event.y // CELL_SIZE
-        if 0 <= col < w and 0 <= row < h:
-            piece["grid"][row][col] = int(self.current_color.get())
-            self._draw_grid()
+        if not (0 <= col < w and 0 <= row < h):
+            return False
+        new_val = int(self.current_color.get())
+        if piece["grid"][row][col] == new_val:
+            return False
+        piece["grid"][row][col] = new_val
+        return True
 
     def _on_select_piece(self, event):
         selection = self.listbox.curselection()
