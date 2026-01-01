@@ -143,6 +143,10 @@ const PieceSprite kPieceSprites[] = {
     
     
     
+    
+    
+    
+    
     {"white_pawn", 20, 20, sprite_white_pawn_rgba},
     {"white_knight", 20, 20, sprite_white_knight_rgba},
     {"white_bishop", 20, 20, sprite_white_bishop_rgba},
@@ -159,6 +163,10 @@ const PieceSprite kPieceSprites[] = {
     {"checker_light_king", 20, 20, sprite_checker_light_king_rgba},
     {"checker_dark_man", 20, 20, sprite_checker_dark_man_rgba},
     {"checker_dark_king", 20, 20, sprite_checker_dark_king_rgba},
+
+
+
+
 
 
 
