@@ -1,4 +1,32 @@
+# Build directories
 build/
 build-unix/
+build_vs*/
+
+# Visual Studio caches and user settings
+.vs/
+*.slnx
+*.vcxproj.user
+*.suo
+*.user
+*.VC.db
+*.opendb
+
+# Visual Studio build outputs
+[Bb]in/
+[Oo]bj/
+[xX]64/
+[xX]86/
+[Dd]ebug*/
+[Rr]elease*/
+ipch/
+*.pdb
+*.ilk
+
+# In-tree CMake artifacts (if configured in source)
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+
 .DS_Store
 __pycache__
