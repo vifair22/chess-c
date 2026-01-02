@@ -178,7 +178,10 @@ static bool parse_start_state(FILE *f, ReplayStartState *start) {
             start->black_can_castle_queenside = strchr(c, 'q') != NULL;
         } else if (strncmp(p, "en_passant ", 11) == 0) {
             int file = -1, rank = -1;
-            sscanf(p + 11, "%d %d", &file, &rank);
+            if (sscanf(p + 11, "%d %d", &file, &rank) != 2) {
+                file = -1;
+                rank = -1;
+            }
             start->en_passant_target = (BoardPos){file, rank};
         } else if (strncmp(p, "promote_white ", 14) == 0) {
             start->promote_white = p[14];
@@ -263,7 +266,7 @@ bool replay_load(const char *path, ReplayData *out) {
         tok = strtok(NULL, " ");
         if (!tok) continue;
         char type[32] = {0};
-        strncpy(type, tok, sizeof(type) - 1);
+        strncpy_s(type, sizeof(type), tok, _TRUNCATE);
 
         ReplayEvent parsed = {0};
         parsed.t_ms = t_ms;

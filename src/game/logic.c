@@ -893,6 +893,9 @@ void game_destroy(GameState *state) {
 }
 
 static void game_handle_click_chess(GameState *state, int file, int rank) {
+    if ((unsigned)file >= 8 || (unsigned)rank >= 8) {
+        return;
+    }
     char clicked = game_piece_at(state, file, rank);
     bool clicked_white = is_white_piece(clicked);
     bool clicked_black = is_black_piece(clicked);
@@ -948,6 +951,9 @@ static void game_handle_click_chess(GameState *state, int file, int rank) {
 }
 
 static void game_handle_click_checkers(GameState *state, int file, int rank) {
+    if ((unsigned)file >= 8 || (unsigned)rank >= 8) {
+        return;
+    }
     char clicked = game_piece_at(state, file, rank);
     bool clicked_white = is_white_piece(clicked);
     bool clicked_black = is_black_piece(clicked);

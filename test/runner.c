@@ -97,8 +97,15 @@ int main(int argc, char **argv) {
 
     int total = 0;
     int failed = 0;
-    char failed_names[512][260];
-    char failed_reasons[512][128];
+    const int max_fail = 512;
+    char (*failed_names)[260] = calloc((size_t)max_fail, sizeof(*failed_names));
+    char (*failed_reasons)[128] = calloc((size_t)max_fail, sizeof(*failed_reasons));
+    if (!failed_names || !failed_reasons) {
+        fprintf(stderr, "Allocation failure\n");
+        free(failed_names);
+        free(failed_reasons);
+        return 1;
+    }
     int failed_count = 0;
 
     if (single_file) {
@@ -120,7 +127,7 @@ int main(int argc, char **argv) {
         ++total;
         if (res != 0) {
             ++failed;
-            if (failed_count < 512) {
+            if (failed_count < max_fail) {
                 strncpy(failed_names[failed_count++], name_only, sizeof(failed_names[0]) - 1);
                 failed_names[failed_count - 1][sizeof(failed_names[0]) - 1] = '\0';
                 strncpy(failed_reasons[failed_count - 1], reason, sizeof(failed_reasons[0]) - 1);
@@ -158,7 +165,7 @@ int main(int argc, char **argv) {
             ++total;
             if (res != 0) {
                 ++failed;
-                if (failed_count < 512) {
+                if (failed_count < max_fail) {
                     strncpy(failed_names[failed_count++], find.name, sizeof(failed_names[0]) - 1);
                     failed_names[failed_count - 1][sizeof(failed_names[0]) - 1] = '\0';
                     strncpy(failed_reasons[failed_count - 1], reason, sizeof(failed_reasons[0]) - 1);
@@ -180,5 +187,7 @@ int main(int argc, char **argv) {
             printf(" - %s (%s)\n", failed_names[i], failed_reasons[i]);
         }
     }
+    free(failed_names);
+    free(failed_reasons);
     return failed == 0 ? 0 : 1;
 }
