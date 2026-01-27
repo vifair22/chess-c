@@ -58,6 +58,7 @@ endif()
 
 add_executable(chess-c
     src/main.c
+    src/ai/ai.c
     src/game/logic.c
     src/renderer/draw.c
     src/renderer/render.c
@@ -80,7 +81,8 @@ target_link_libraries(chess-c PRIVATE ${SDL2_LIB_TARGET} ${SDL2_MAIN_TARGET})
 add_subdirectory(test)
 
 if (WIN32)
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    # Match vcpkg/SDL2 default runtime (MSVC /MD, /MDd) to avoid LNK4098.
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL$<$<CONFIG:Debug>:Debug>")
     target_link_options(chess-c PRIVATE
         $<$<CONFIG:Debug>:/SUBSYSTEM:CONSOLE>
         $<$<NOT:$<CONFIG:Debug>>:/SUBSYSTEM:WINDOWS>

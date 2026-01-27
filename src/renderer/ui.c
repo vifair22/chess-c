@@ -15,10 +15,107 @@ static SDL_Rect center_rect(int window_w, int window_h, int w, int h) {
     return r;
 }
 
-static void draw_panel(RenderContext *ctx, const char *title, const char *body) {
-    const int panel_w = ctx->surface.window_width * 2 / 3;
-    const int panel_h = ctx->surface.window_height * 2 / 3;
-    SDL_Rect panel = center_rect(ctx->surface.window_width, ctx->surface.window_height, panel_w, panel_h);
+typedef struct {
+    SDL_Rect panel;
+    int scale;
+    int body_x;
+    int body_y;
+    int line_height;
+} MenuLayout;
+
+static MenuLayout menu_layout(int window_w, int window_h) {
+    MenuLayout layout;
+    int panel_w = window_w * 2 / 3;
+    int panel_h = window_h * 2 / 3;
+    layout.panel = center_rect(window_w, window_h, panel_w, panel_h);
+    layout.scale = window_w / 300;
+    if (layout.scale < 2) layout.scale = 2;
+    layout.body_x = layout.panel.x + 24;
+    layout.body_y = layout.panel.y + 24 + (8 * (layout.scale + 1));
+    layout.line_height = (7 + 1) * layout.scale;
+    return layout;
+}
+
+typedef struct {
+    SDL_Rect chess;
+    SDL_Rect checkers;
+    SDL_Rect ai_side;
+    SDL_Rect depth[4];
+    SDL_Rect start;
+} MenuButtons;
+
+static int measure_text_width(const char *text, int scale) {
+    const int glyph_w = 5;
+    int line_width = 0;
+    int max_width = 0;
+    for (const char *p = text; *p; ++p) {
+        if (*p == '\n') {
+            if (line_width > max_width) max_width = line_width;
+            line_width = 0;
+            continue;
+        }
+        line_width += (glyph_w + 1) * scale;
+    }
+    if (line_width > max_width) max_width = line_width;
+    return max_width;
+}
+
+static bool point_in_rect(int x, int y, SDL_Rect rect) {
+    return x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
+}
+
+static void draw_panel_text(RenderContext *ctx, const MenuLayout *layout, const char *text, int y) {
+    draw_text(ctx->surface.renderer, layout->body_x, y, layout->scale, kPalette.panel_text, text);
+}
+
+static void menu_vertical_buttons(const MenuLayout *layout, SDL_Rect *out, int count, int start_y) {
+    int margin = 24;
+    int gap = 12;
+    int full_w = layout->panel.w - margin * 2;
+    if (full_w < 0) full_w = layout->panel.w;
+    int btn_h = layout->line_height + 6;
+    int x = layout->panel.x + margin;
+    int y = start_y;
+    for (int i = 0; i < count; ++i) {
+        out[i] = (SDL_Rect){x, y, full_w, btn_h};
+        y += btn_h + gap;
+    }
+}
+
+static MenuButtons menu_buttons(const MenuLayout *layout) {
+    MenuButtons buttons = {0};
+    int margin = 24;
+    int gap = 12;
+    int full_w = layout->panel.w - margin * 2;
+    if (full_w < 0) full_w = layout->panel.w;
+    int btn_h = layout->line_height + 6;
+    int y = layout->body_y;
+
+    y += layout->line_height; // MODE label
+    int half_w = (full_w - gap) / 2;
+    int x_left = layout->panel.x + margin;
+    buttons.chess = (SDL_Rect){x_left, y, half_w, btn_h};
+    buttons.checkers = (SDL_Rect){x_left + half_w + gap, y, half_w, btn_h};
+    y += btn_h + gap;
+
+    y += layout->line_height; // AI SIDE label
+    buttons.ai_side = (SDL_Rect){x_left, y, full_w, btn_h};
+    y += btn_h + gap;
+
+    y += layout->line_height; // AI DEPTH label
+    int depth_w = (full_w - gap * 3) / 4;
+    for (int i = 0; i < 4; ++i) {
+        buttons.depth[i] = (SDL_Rect){x_left + i * (depth_w + gap), y, depth_w, btn_h};
+    }
+    y += btn_h + gap;
+
+    buttons.start = (SDL_Rect){x_left, y, full_w, btn_h};
+    return buttons;
+}
+
+static MenuLayout draw_panel_base(RenderContext *ctx, const char *title) {
+    MenuLayout layout = menu_layout(ctx->surface.window_width, ctx->surface.window_height);
+    SDL_Rect panel = layout.panel;
 
     SDL_SetRenderDrawColor(ctx->surface.renderer, kPalette.panel_backdrop.r, kPalette.panel_backdrop.g, kPalette.panel_backdrop.b, kPalette.panel_backdrop.a);
     SDL_RenderFillRect(ctx->surface.renderer, &(SDL_Rect){0, 0, ctx->surface.window_width, ctx->surface.window_height});
@@ -28,38 +125,91 @@ static void draw_panel(RenderContext *ctx, const char *title, const char *body) 
     SDL_SetRenderDrawColor(ctx->surface.renderer, kPalette.panel_border.r, kPalette.panel_border.g, kPalette.panel_border.b, kPalette.panel_border.a);
     SDL_RenderDrawRect(ctx->surface.renderer, &panel);
 
-    int scale = ctx->surface.window_width / 300;
-    if (scale < 2) scale = 2;
-
     int title_x = panel.x + 24;
     int title_y = panel.y + 24;
-    draw_text(ctx->surface.renderer, title_x, title_y, scale + 1, kPalette.panel_text, title);
+    draw_text(ctx->surface.renderer, title_x, title_y, layout.scale + 1, kPalette.panel_text, title);
+    return layout;
+}
 
-    int body_x = panel.x + 24;
-    int body_y = panel.y + 24 + (8 * (scale + 1));
-    draw_text(ctx->surface.renderer, body_x, body_y, scale, kPalette.panel_text, body);
+static void draw_panel(RenderContext *ctx, const char *title, const char *body) {
+    MenuLayout layout = draw_panel_base(ctx, title);
+    draw_text(ctx->surface.renderer, layout.body_x, layout.body_y, layout.scale, kPalette.panel_text, body);
+}
+
+static void draw_button(RenderContext *ctx, SDL_Rect rect, const char *label, bool active, int scale) {
+    SDL_Color fill = kPalette.panel_fill;
+    fill.r = (Uint8)(fill.r + 10);
+    fill.g = (Uint8)(fill.g + 10);
+    fill.b = (Uint8)(fill.b + 12);
+    SDL_SetRenderDrawColor(ctx->surface.renderer, fill.r, fill.g, fill.b, fill.a);
+    SDL_RenderFillRect(ctx->surface.renderer, &rect);
+
+    if (active) {
+        SDL_Color sel = kPalette.select_fill;
+        sel.a = 180;
+        SDL_SetRenderDrawColor(ctx->surface.renderer, sel.r, sel.g, sel.b, sel.a);
+        SDL_RenderFillRect(ctx->surface.renderer, &rect);
+    }
+
+    SDL_SetRenderDrawColor(ctx->surface.renderer, kPalette.panel_border.r, kPalette.panel_border.g, kPalette.panel_border.b, kPalette.panel_border.a);
+    SDL_RenderDrawRect(ctx->surface.renderer, &rect);
+
+    int text_w = measure_text_width(label, scale);
+    int text_x = rect.x + (rect.w - text_w) / 2;
+    int text_y = rect.y + (rect.h - (7 * scale)) / 2;
+    draw_text(ctx->surface.renderer, text_x, text_y, scale, kPalette.panel_text, label);
+}
+
+static const char *ai_side_label(AiSide side) {
+    switch (side) {
+        case AI_SIDE_WHITE: return "WHITE";
+        case AI_SIDE_BLACK: return "BLACK";
+        default: return "OFF";
+    }
 }
 
 void ui_draw_main_menu(RenderContext *ctx, const GameState *state) {
-    char body[256];
-    snprintf(body, sizeof(body),
-        "MODE: %s\n"
-        "[H] CHESS   [C] CHECKERS\n"
-        "LEFT CLICK TO SELECT\n"
-        "ENTER / SPACE TO START\n"
-        "ESC OR P TO TOGGLE PAUSE",
-        state->match.mode);
-    draw_panel(ctx, "MAIN MENU", body);
+    MenuLayout layout = draw_panel_base(ctx, "MAIN MENU");
+    MenuButtons buttons = menu_buttons(&layout);
+
+    int x = layout.body_x;
+    int y = layout.body_y;
+    draw_text(ctx->surface.renderer, x, y, layout.scale, kPalette.panel_text, "MODE");
+    y += layout.line_height;
+
+    bool chess_active = strncmp(state->match.mode, "chess", 5) == 0;
+    draw_button(ctx, buttons.chess, "CHESS", chess_active, layout.scale);
+    draw_button(ctx, buttons.checkers, "CHECKERS", !chess_active, layout.scale);
+
+    y = buttons.ai_side.y - layout.line_height;
+    draw_text(ctx->surface.renderer, x, y, layout.scale, kPalette.panel_text, "AI SIDE");
+    draw_button(ctx, buttons.ai_side, ai_side_label(state->ai.side), false, layout.scale);
+
+    y = buttons.depth[0].y - layout.line_height;
+    draw_text(ctx->surface.renderer, x, y, layout.scale, kPalette.panel_text, "AI DEPTH");
+    for (int i = 0; i < 4; ++i) {
+        char label[2] = {(char)('1' + i), '\0'};
+        draw_button(ctx, buttons.depth[i], label, state->ai.depth == (i + 1), layout.scale);
+    }
+
+    draw_button(ctx, buttons.start, "START", false, layout.scale);
+
+    int hint_y = buttons.start.y + buttons.start.h + layout.line_height;
+    draw_text(ctx->surface.renderer, x, hint_y, layout.scale, kPalette.panel_text, "ENTER/SPACE TO START  ESC/P TO PAUSE");
 }
 
 void ui_draw_pause_menu(RenderContext *ctx, const GameState *state) {
     (void)state;
-    const char *body =
-        "GAME PAUSED\n"
-        "ESC OR P TO RESUME\n"
-        "R OR Q TO RESIGN\n"
-        "ENTER TO CLOSE MENU";
-    draw_panel(ctx, "PAUSE", body);
+    MenuLayout layout = draw_panel_base(ctx, "PAUSE");
+    SDL_Rect buttons[2];
+    int y = layout.body_y;
+    draw_panel_text(ctx, &layout, "GAME PAUSED", y);
+    y += layout.line_height * 2;
+    menu_vertical_buttons(&layout, buttons, 2, y);
+    draw_button(ctx, buttons[0], "RESUME", false, layout.scale);
+    draw_button(ctx, buttons[1], "RESIGN", false, layout.scale);
+    y = buttons[1].y + buttons[1].h + layout.line_height;
+    draw_panel_text(ctx, &layout, "ESC/P TO RESUME  Q/R TO RESIGN", y);
 }
 
 void ui_draw_win_screen(RenderContext *ctx, const GameState *state) {
@@ -87,13 +237,94 @@ void ui_draw_win_screen(RenderContext *ctx, const GameState *state) {
         }
     }
 
-    snprintf(body, sizeof(body),
-        "%s\n"
-        "RESULT: %s\n\n"
-        "PRESS ENTER/SPACE TO RETURN TO MENU",
-        state->match.mode, result);
+    MenuLayout layout = draw_panel_base(ctx, title);
+    SDL_Rect buttons[1];
+    int y = layout.body_y;
+    snprintf(body, sizeof(body), "%s\nRESULT: %s", state->match.mode, result);
+    draw_panel_text(ctx, &layout, body, y);
+    y += layout.line_height * 3;
+    menu_vertical_buttons(&layout, buttons, 1, y);
+    draw_button(ctx, buttons[0], "MAIN MENU", false, layout.scale);
+}
 
-    draw_panel(ctx, title, body);
+bool ui_handle_main_menu_click(GameState *state, int mouse_x, int mouse_y, int window_w, int window_h) {
+    if (!state) return false;
+    MenuLayout layout = menu_layout(window_w, window_h);
+    if (mouse_x < layout.panel.x || mouse_x > layout.panel.x + layout.panel.w ||
+        mouse_y < layout.panel.y || mouse_y > layout.panel.y + layout.panel.h) {
+        return false;
+    }
+
+    MenuButtons buttons = menu_buttons(&layout);
+    if (point_in_rect(mouse_x, mouse_y, buttons.chess)) {
+        game_reset(state, "chess");
+        return true;
+    }
+    if (point_in_rect(mouse_x, mouse_y, buttons.checkers)) {
+        game_reset(state, "checkers");
+        return true;
+    }
+    if (point_in_rect(mouse_x, mouse_y, buttons.ai_side)) {
+        if (state->ai.side == AI_SIDE_NONE) {
+            state->ai.side = AI_SIDE_WHITE;
+        } else if (state->ai.side == AI_SIDE_WHITE) {
+            state->ai.side = AI_SIDE_BLACK;
+        } else {
+            state->ai.side = AI_SIDE_NONE;
+        }
+        return true;
+    }
+    for (int i = 0; i < 4; ++i) {
+        if (point_in_rect(mouse_x, mouse_y, buttons.depth[i])) {
+            state->ai.depth = i + 1;
+            return true;
+        }
+    }
+    if (point_in_rect(mouse_x, mouse_y, buttons.start)) {
+        state->ui.show_main_menu = false;
+        return true;
+    }
+    return false;
+}
+
+bool ui_handle_pause_menu_click(GameState *state, int mouse_x, int mouse_y, int window_w, int window_h) {
+    if (!state) return false;
+    MenuLayout layout = menu_layout(window_w, window_h);
+    if (mouse_x < layout.panel.x || mouse_x > layout.panel.x + layout.panel.w ||
+        mouse_y < layout.panel.y || mouse_y > layout.panel.y + layout.panel.h) {
+        return false;
+    }
+    SDL_Rect buttons[2];
+    int y = layout.body_y + layout.line_height * 2;
+    menu_vertical_buttons(&layout, buttons, 2, y);
+    if (point_in_rect(mouse_x, mouse_y, buttons[0])) {
+        state->ui.show_pause_menu = false;
+        return true;
+    }
+    if (point_in_rect(mouse_x, mouse_y, buttons[1])) {
+        game_resign(state);
+        return true;
+    }
+    return false;
+}
+
+bool ui_handle_win_screen_click(GameState *state, int mouse_x, int mouse_y, int window_w, int window_h) {
+    if (!state) return false;
+    MenuLayout layout = menu_layout(window_w, window_h);
+    if (mouse_x < layout.panel.x || mouse_x > layout.panel.x + layout.panel.w ||
+        mouse_y < layout.panel.y || mouse_y > layout.panel.y + layout.panel.h) {
+        return false;
+    }
+    SDL_Rect buttons[1];
+    int y = layout.body_y + layout.line_height * 3;
+    menu_vertical_buttons(&layout, buttons, 1, y);
+    if (point_in_rect(mouse_x, mouse_y, buttons[0])) {
+        game_reset(state, state->match.mode);
+        state->ui.show_main_menu = true;
+        state->ui.show_pause_menu = false;
+        return true;
+    }
+    return false;
 }
 
 

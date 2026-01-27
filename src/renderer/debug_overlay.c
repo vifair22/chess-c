@@ -50,12 +50,16 @@ void debug_overlay_render(RenderContext *ctx, const GameState *state) {
         "UI: %s\n"
         "GAME: %s\n"
         "TURN: %d\n"
+        "AI: %s D%d\n"
         "TIME: %.0fs\n"
         "TPS: %.1f (%.2f ms)",
         state->match.mode,
         ui_state,
         state->match.phase,
         state->match.turn_number,
+        state->ai.side == AI_SIDE_WHITE ? "WHITE" :
+        state->ai.side == AI_SIDE_BLACK ? "BLACK" : "OFF",
+        state->ai.depth,
         state->match.game_time.total_seconds,
         fps,
         ms);

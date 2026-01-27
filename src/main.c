@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "ai/ai.h"
 #include "game/logic.h"
 #include "input/keyboard.h"
 #include "input/mouse.h"
@@ -258,6 +259,14 @@ int main(int argc, char **argv) {
 
         if (render_ready) {
             render_frame(&render, &game);
+        }
+
+        if (!replay_path) {
+            bool can_ai_move = !render_ready || !render.anim.active;
+            if (can_ai_move && SDL_LockMutex(game.mutex) == 0) {
+                ai_make_move(&game);
+                SDL_UnlockMutex(game.mutex);
+            }
         }
 
         if (test_mode && replay_path && !live_replay_active && !headless && !replay_evaluated) {

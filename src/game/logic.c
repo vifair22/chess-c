@@ -878,6 +878,13 @@ bool game_init(GameState *state) {
         return false;
     }
 
+    if (state->ai.depth <= 0) {
+        state->ai.depth = 2;
+    }
+    if (state->ai.side < AI_SIDE_NONE || state->ai.side > AI_SIDE_BLACK) {
+        state->ai.side = AI_SIDE_NONE;
+    }
+
     game_reset(state, state->match.mode[0] ? state->match.mode : "chess");
     state->ui.show_main_menu = true;
     state->ui.show_pause_menu = false;
@@ -1017,6 +1024,52 @@ void game_handle_click(GameState *state, int file, int rank) {
     } else {
         game_handle_click_chess(state, file, rank);
     }
+}
+
+bool game_apply_move(GameState *state, BoardPos from, BoardPos to, MoveHint hint) {
+    if (!state) {
+        return false;
+    }
+    if (from.file < 0 || from.file >= 8 || from.rank < 0 || from.rank >= 8) {
+        return false;
+    }
+    if (to.file < 0 || to.file >= 8 || to.rank < 0 || to.rank >= 8) {
+        return false;
+    }
+    if (!game_allows_moves(state)) {
+        return false;
+    }
+    if (game_mode_is(state, "checkers")) {
+        if (!(hint.flags & MOVE_LEGAL)) {
+            game_eval_legal_moves(state, from.file, from.rank);
+            hint = state->moves.legal_moves[to.rank][to.file];
+            if (!(hint.flags & MOVE_LEGAL)) {
+                game_clear_move_flags(state);
+                return false;
+            }
+        }
+        apply_checkers_move(state, from.file, from.rank, to.file, to.rank, hint);
+        return true;
+    }
+
+    if (!(hint.flags & MOVE_LEGAL)) {
+        game_eval_legal_moves(state, from.file, from.rank);
+        hint = state->moves.legal_moves[to.rank][to.file];
+        if (!(hint.flags & MOVE_LEGAL)) {
+            game_clear_move_flags(state);
+            return false;
+        }
+    }
+
+    state->last_move.start = from;
+    state->last_move.end = to;
+    apply_basic_move(state, from.file, from.rank, to.file, to.rank, hint, true);
+    update_game_phase_chess(state);
+    game_clear_move_flags(state);
+    state->moves.selected.file = -1;
+    state->moves.selected.rank = -1;
+    state->match.turn_number += 1;
+    return true;
 }
 
 static void add_move_if_legal(GameState *state, int from_file, int from_rank, int to_file, int to_rank, MoveHint hint) {
@@ -1283,5 +1336,3 @@ void game_recompute_phase(GameState *state) {
         update_game_phase_chess(state);
     }
 }
-
-

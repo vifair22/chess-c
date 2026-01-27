@@ -25,7 +25,9 @@ static void draw_filled_rect_internal(SDL_Renderer *renderer, int32_t x, int32_t
 void draw_filled_circle(SDL_Renderer *renderer, int32_t cx, int32_t cy, int32_t radius) {
     // Draw horizontal spans across the circle for a simple fill.
     for (int32_t y = -radius; y <= radius; ++y) {
-        int32_t dx = (int32_t)sqrtf((float)(radius * radius - y * y));
+        int64_t r2 = (int64_t)radius * (int64_t)radius;
+        int64_t y2 = (int64_t)y * (int64_t)y;
+        int32_t dx = (int32_t)sqrtf((float)(r2 - y2));
         SDL_RenderDrawLine(renderer, cx - dx, cy + y, cx + dx, cy + y);
     }
 }

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <SDL_mutex.h>
+#include <SDL.h>
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -94,6 +94,17 @@ typedef struct {
     int accum_frames;
 } PerfState;
 
+typedef enum {
+    AI_SIDE_NONE = 0,
+    AI_SIDE_WHITE = 1,
+    AI_SIDE_BLACK = 2,
+} AiSide;
+
+typedef struct {
+    AiSide side;
+    int depth; // search depth (1-4 recommended)
+} AiSettings;
+
 typedef struct {
     char mode[16]; // e.g., "chess", "checkers"
     char phase[24]; // e.g., "play", "checkmate", "win_white_resign"
@@ -118,6 +129,7 @@ typedef struct {
     ChessRulesState chess;
     UiState ui;
     PerfState perf;
+    AiSettings ai;
 } GameState;
 
 bool game_init(GameState *state);
@@ -133,3 +145,5 @@ void game_reset(GameState *state, const char *mode);
 void game_recompute_phase(GameState *state);
 // Reset repetition history (e.g., after seeding a custom board state).
 void game_reset_history(GameState *state);
+// Apply a legal move (used by AI/replay), returns false if invalid or unsupported.
+bool game_apply_move(GameState *state, BoardPos from, BoardPos to, MoveHint hint);
