@@ -1463,6 +1463,14 @@ void game_reset(GameState *state, const char *mode) {
     state->ui.show_load_menu = false;
     state->ui.show_load_confirm = false;
     state->ui.load_needs_refresh = false;
+    state->ui.main_menu_index = 0;
+    state->ui.new_menu_index = 0;
+    state->ui.pause_menu_index = 0;
+    state->ui.save_menu_index = 0;
+    state->ui.load_menu_focus = 0;
+    state->ui.load_confirm_index = 0;
+    state->ui.menu_keyboard_active = false;
+    state->ui.menu_mouse_active = true;
     state->ui.save_len = 0;
     state->ui.save_name[0] = '\0';
     state->ui.load_count = 0;

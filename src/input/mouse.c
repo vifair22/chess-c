@@ -1,6 +1,7 @@
 #include "input/mouse.h"
 
 #include <SDL_log.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "save/replay.h"
@@ -8,6 +9,9 @@
 #include "renderer/ui.h"
 
 void mouse_handle_event(GameState *game, const RenderContext *render, const SDL_Event *event) {
+    static int last_menu_x = 0;
+    static int last_menu_y = 0;
+    static bool last_menu_valid = false;
     if (!game || !render || !event) {
         return;
     }
@@ -27,6 +31,21 @@ void mouse_handle_event(GameState *game, const RenderContext *render, const SDL_
         }
         changed = (game->moves.hover_pos.file != file || game->moves.hover_pos.rank != rank);
         game->moves.hover_pos = (BoardPos){file, rank};
+        if (game->ui.show_main_menu || game->ui.show_pause_menu ||
+            game->ui.show_save_modal || game->ui.show_load_menu ||
+            game->ui.show_load_confirm || game->ui.show_new_menu) {
+            int dx = last_menu_valid ? abs(event->motion.x - last_menu_x) : 0;
+            int dy = last_menu_valid ? abs(event->motion.y - last_menu_y) : 0;
+            last_menu_x = event->motion.x;
+            last_menu_y = event->motion.y;
+            last_menu_valid = true;
+            if (dx + dy >= 4) { // debounce: require a small movement
+                game->ui.menu_keyboard_active = false;
+                game->ui.menu_mouse_active = true;
+            }
+        } else {
+            last_menu_valid = false;
+        }
         SDL_UnlockMutex(game->mutex);
         (void)changed;
         return;

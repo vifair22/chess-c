@@ -89,6 +89,14 @@ typedef struct {
     bool show_load_confirm;
     bool show_new_menu;
     bool load_needs_refresh;
+    int main_menu_index;
+    int new_menu_index;
+    int pause_menu_index;
+    int save_menu_index;
+    int load_menu_focus;
+    int load_confirm_index;
+    bool menu_keyboard_active;
+    bool menu_mouse_active;
     char save_name[64];
     int save_len;
     char load_names[32][64];

@@ -5,6 +5,7 @@
 
 #include "renderer/draw.h"
 #include "renderer/palette.h"
+#include "save/save_handler.h"
 #include "save/replay.h"
 
 static SDL_Rect center_rect(int window_w, int window_h, int w, int h) {
@@ -15,6 +16,8 @@ static SDL_Rect center_rect(int window_w, int window_h, int w, int h) {
     r.h = h;
     return r;
 }
+
+static bool s_menu_allow_hover = true;
 
 typedef struct {
     SDL_Rect panel;
@@ -207,11 +210,11 @@ static void draw_panel(RenderContext *ctx, const char *title, const char *body) 
     draw_text(ctx->surface.renderer, layout.body_x, layout.body_y, layout.scale, kPalette.panel_text, body);
 }
 
-static void draw_button(RenderContext *ctx, SDL_Rect rect, const char *label, bool active, int scale) {
+static void draw_button(RenderContext *ctx, SDL_Rect rect, const char *label, bool active, bool focused, int scale) {
     int mouse_x = 0;
     int mouse_y = 0;
     SDL_GetMouseState(&mouse_x, &mouse_y);
-    bool hovered = point_in_rect(mouse_x, mouse_y, rect);
+    bool hovered = s_menu_allow_hover && point_in_rect(mouse_x, mouse_y, rect);
 
     SDL_Color fill = kPalette.panel_fill;
     fill.r = (Uint8)(fill.r + 10);
@@ -234,6 +237,13 @@ static void draw_button(RenderContext *ctx, SDL_Rect rect, const char *label, bo
         SDL_RenderFillRect(ctx->surface.renderer, &rect);
     }
 
+    if (focused && !hovered) {
+        SDL_Color focus = kPalette.hover_fill;
+        focus.a = 140;
+        SDL_SetRenderDrawColor(ctx->surface.renderer, focus.r, focus.g, focus.b, focus.a);
+        SDL_RenderFillRect(ctx->surface.renderer, &rect);
+    }
+
     SDL_SetRenderDrawColor(ctx->surface.renderer, kPalette.panel_border.r, kPalette.panel_border.g, kPalette.panel_border.b, kPalette.panel_border.a);
     SDL_RenderDrawRect(ctx->surface.renderer, &rect);
     if (hovered && rect.w > 6 && rect.h > 6) {
@@ -243,6 +253,15 @@ static void draw_button(RenderContext *ctx, SDL_Rect rect, const char *label, bo
         hover_edge.b = (Uint8)((hover_edge.b + 40) > 255 ? 255 : (hover_edge.b + 40));
         SDL_Rect inner = {rect.x + 2, rect.y + 2, rect.w - 4, rect.h - 4};
         SDL_SetRenderDrawColor(ctx->surface.renderer, hover_edge.r, hover_edge.g, hover_edge.b, hover_edge.a);
+        SDL_RenderDrawRect(ctx->surface.renderer, &inner);
+    }
+    if (focused && !hovered && rect.w > 6 && rect.h > 6) {
+        SDL_Color focus_edge = kPalette.panel_border;
+        focus_edge.r = (Uint8)((focus_edge.r + 40) > 255 ? 255 : (focus_edge.r + 40));
+        focus_edge.g = (Uint8)((focus_edge.g + 40) > 255 ? 255 : (focus_edge.g + 40));
+        focus_edge.b = (Uint8)((focus_edge.b + 40) > 255 ? 255 : (focus_edge.b + 40));
+        SDL_Rect inner = {rect.x + 2, rect.y + 2, rect.w - 4, rect.h - 4};
+        SDL_SetRenderDrawColor(ctx->surface.renderer, focus_edge.r, focus_edge.g, focus_edge.b, focus_edge.a);
         SDL_RenderDrawRect(ctx->surface.renderer, &inner);
     }
 
@@ -279,29 +298,49 @@ static const char *ai_side_label(AiSide side) {
 static void ui_draw_new_menu(RenderContext *ctx, const GameState *state) {
     MenuLayout layout = draw_panel_base(ctx, "NEW GAME", true);
     NewGameButtons buttons = new_game_buttons(&layout);
-
+    s_menu_allow_hover = state->ui.menu_mouse_active;
+    int mouse_x = 0;
+    int mouse_y = 0;
+    SDL_GetMouseState(&mouse_x, &mouse_y);
     int x = layout.body_x;
     int y = layout.body_y;
     draw_text(ctx->surface.renderer, x, y, layout.scale, kPalette.panel_text, "MODE");
     y += layout.line_height;
 
+    SDL_Rect focused_rect = {0};
     bool chess_active = strncmp(state->match.mode, "chess", 5) == 0;
-    draw_button(ctx, buttons.chess, "CHESS", chess_active, layout.scale);
-    draw_button(ctx, buttons.checkers, "CHECKERS", !chess_active, layout.scale);
+    draw_button(ctx, buttons.chess, "CHESS", chess_active, state->ui.menu_keyboard_active && state->ui.new_menu_index == 0, layout.scale);
+    draw_button(ctx, buttons.checkers, "CHECKERS", !chess_active, state->ui.menu_keyboard_active && state->ui.new_menu_index == 1, layout.scale);
 
     y = buttons.ai_side.y - layout.line_height;
     draw_text(ctx->surface.renderer, x, y, layout.scale, kPalette.panel_text, "AI SIDE");
-    draw_button(ctx, buttons.ai_side, ai_side_label(state->ai.side), false, layout.scale);
+    draw_button(ctx, buttons.ai_side, ai_side_label(state->ai.side), false, state->ui.menu_keyboard_active && state->ui.new_menu_index == 2, layout.scale);
 
     y = buttons.depth[0].y - layout.line_height;
     draw_text(ctx->surface.renderer, x, y, layout.scale, kPalette.panel_text, "AI DEPTH");
     for (int i = 0; i < 4; ++i) {
         char label[2] = {(char)('1' + i), '\0'};
-        draw_button(ctx, buttons.depth[i], label, state->ai.depth == (i + 1), layout.scale);
+        bool focused = state->ui.menu_keyboard_active && state->ui.new_menu_index == (3 + i);
+        draw_button(ctx, buttons.depth[i], label, state->ai.depth == (i + 1), focused, layout.scale);
     }
 
-    draw_button(ctx, buttons.start, "START", false, layout.scale);
-    draw_button(ctx, buttons.back, "BACK", false, layout.scale);
+    draw_button(ctx, buttons.start, "START", false, state->ui.menu_keyboard_active && state->ui.new_menu_index == 7, layout.scale);
+    draw_button(ctx, buttons.back, "BACK", false, state->ui.menu_keyboard_active && state->ui.new_menu_index == 8, layout.scale);
+
+    switch (state->ui.new_menu_index) {
+        case 0: focused_rect = buttons.chess; break;
+        case 1: focused_rect = buttons.checkers; break;
+        case 2: focused_rect = buttons.ai_side; break;
+        case 3: focused_rect = buttons.depth[0]; break;
+        case 4: focused_rect = buttons.depth[1]; break;
+        case 5: focused_rect = buttons.depth[2]; break;
+        case 6: focused_rect = buttons.depth[3]; break;
+        case 7: focused_rect = buttons.start; break;
+        case 8: focused_rect = buttons.back; break;
+        default: break;
+    }
+    (void)mouse_x;
+    (void)mouse_y;
 
     int hint_y = buttons.back.y + buttons.back.h + layout.line_height;
     draw_text(ctx->surface.renderer, x, hint_y, layout.scale, kPalette.panel_text, "ESC TO GO BACK");
@@ -309,8 +348,13 @@ static void ui_draw_new_menu(RenderContext *ctx, const GameState *state) {
 
 static void ui_draw_save_modal(RenderContext *ctx, const GameState *state) {
     MenuLayout layout = draw_panel_base(ctx, "SAVE GAME", true);
+    s_menu_allow_hover = state->ui.menu_mouse_active;
     SDL_Rect buttons[2];
     int y = layout.body_y;
+    int mouse_x = 0;
+    int mouse_y = 0;
+    SDL_GetMouseState(&mouse_x, &mouse_y);
+    SDL_Rect focused_rect = {0};
     draw_panel_text(ctx, &layout, "ENTER A NAME", y);
     y += layout.line_height + 6;
 
@@ -323,13 +367,25 @@ static void ui_draw_save_modal(RenderContext *ctx, const GameState *state) {
 
     y = input.y + input.h + layout.line_height;
     menu_vertical_buttons(&layout, buttons, 2, y);
-    draw_button(ctx, buttons[0], "SAVE", false, layout.scale);
-    draw_button(ctx, buttons[1], "CANCEL", false, layout.scale);
+    draw_button(ctx, buttons[0], "SAVE", false, state->ui.menu_keyboard_active && state->ui.save_menu_index == 0, layout.scale);
+    draw_button(ctx, buttons[1], "CANCEL", false, state->ui.menu_keyboard_active && state->ui.save_menu_index == 1, layout.scale);
+    focused_rect = (state->ui.save_menu_index == 0) ? buttons[0] : buttons[1];
+    (void)mouse_x;
+    (void)mouse_y;
 }
 
 static void ui_draw_load_menu(RenderContext *ctx, const GameState *state) {
     MenuLayout layout = draw_panel_base(ctx, "LOAD GAME", true);
+    s_menu_allow_hover = state->ui.menu_mouse_active;
     int y = layout.body_y;
+    if (state->ui.load_needs_refresh) {
+        save_refresh_list((GameState *)state);
+        ((GameState *)state)->ui.load_needs_refresh = false;
+    }
+    int mouse_x = 0;
+    int mouse_y = 0;
+    SDL_GetMouseState(&mouse_x, &mouse_y);
+    SDL_Rect focused_rect = {0};
     draw_panel_text(ctx, &layout, "SELECT A SAVE", y);
     y += layout.line_height + 6;
 
@@ -362,7 +418,12 @@ static void ui_draw_load_menu(RenderContext *ctx, const GameState *state) {
             if (dot && strcmp(dot, ".replay") == 0) {
                 *dot = '\0';
             }
-            draw_button(ctx, buttons[i], label, false, layout.scale);
+            int focus_index = start + i;
+            bool focused = state->ui.menu_keyboard_active && state->ui.load_menu_focus == focus_index;
+            if (state->ui.load_menu_focus == focus_index) {
+                focused_rect = buttons[i];
+            }
+            draw_button(ctx, buttons[i], label, false, focused, layout.scale);
         }
         if (count > max_visible) {
             if (start > 0) {
@@ -377,13 +438,24 @@ static void ui_draw_load_menu(RenderContext *ctx, const GameState *state) {
 
     SDL_Rect cancel_btn[1];
     menu_vertical_buttons(&layout, cancel_btn, 1, y);
-    draw_button(ctx, cancel_btn[0], "CANCEL", false, layout.scale);
+    bool cancel_focused = state->ui.menu_keyboard_active && state->ui.load_menu_focus == state->ui.load_count;
+    if (state->ui.load_menu_focus == state->ui.load_count) {
+        focused_rect = cancel_btn[0];
+    }
+    draw_button(ctx, cancel_btn[0], "CANCEL", false, cancel_focused, layout.scale);
+    (void)mouse_x;
+    (void)mouse_y;
 }
 
 static void ui_draw_load_confirm(RenderContext *ctx, const GameState *state) {
     MenuLayout layout = draw_panel_base(ctx, "LOAD SAVE?", true);
+    s_menu_allow_hover = state->ui.menu_mouse_active;
     SDL_Rect buttons[2];
     int y = layout.body_y;
+    int mouse_x = 0;
+    int mouse_y = 0;
+    SDL_GetMouseState(&mouse_x, &mouse_y);
+    SDL_Rect focused_rect = {0};
     if (state->ui.load_selected >= 0 && state->ui.load_selected < state->ui.load_count) {
         char label[64];
         strncpy(label, state->ui.load_names[state->ui.load_selected], sizeof(label) - 1);
@@ -396,8 +468,11 @@ static void ui_draw_load_confirm(RenderContext *ctx, const GameState *state) {
     }
     y += layout.line_height * 2;
     menu_vertical_buttons(&layout, buttons, 2, y);
-    draw_button(ctx, buttons[0], "LOAD", false, layout.scale);
-    draw_button(ctx, buttons[1], "CANCEL", false, layout.scale);
+    draw_button(ctx, buttons[0], "LOAD", false, state->ui.menu_keyboard_active && state->ui.load_confirm_index == 0, layout.scale);
+    draw_button(ctx, buttons[1], "CANCEL", false, state->ui.menu_keyboard_active && state->ui.load_confirm_index == 1, layout.scale);
+    focused_rect = (state->ui.load_confirm_index == 0) ? buttons[0] : buttons[1];
+    (void)mouse_x;
+    (void)mouse_y;
 }
 
 void ui_draw_main_menu(RenderContext *ctx, const GameState *state) {
@@ -412,10 +487,20 @@ void ui_draw_main_menu(RenderContext *ctx, const GameState *state) {
     draw_main_menu_art(ctx, ctx->surface.window_width, ctx->surface.window_height);
 
     MainMenuLayout layout = main_menu_layout(ctx->surface.window_width, ctx->surface.window_height);
+    s_menu_allow_hover = state->ui.menu_mouse_active;
+    int mouse_x = 0;
+    int mouse_y = 0;
+    SDL_GetMouseState(&mouse_x, &mouse_y);
+    SDL_Rect focused_rect = {0};
     MenuButtons buttons = main_menu_buttons(&layout);
-    draw_button(ctx, buttons.new_game, "NEW", false, layout.scale);
-    draw_button(ctx, buttons.load, "LOAD", false, layout.scale);
-    draw_button(ctx, buttons.quit, "QUIT", false, layout.scale);
+    draw_button(ctx, buttons.new_game, "NEW", false, state->ui.menu_keyboard_active && state->ui.main_menu_index == 0, layout.scale);
+    draw_button(ctx, buttons.load, "LOAD", false, state->ui.menu_keyboard_active && state->ui.main_menu_index == 1, layout.scale);
+    draw_button(ctx, buttons.quit, "QUIT", false, state->ui.menu_keyboard_active && state->ui.main_menu_index == 2, layout.scale);
+    if (state->ui.main_menu_index == 0) focused_rect = buttons.new_game;
+    else if (state->ui.main_menu_index == 1) focused_rect = buttons.load;
+    else focused_rect = buttons.quit;
+    (void)mouse_x;
+    (void)mouse_y;
 
     int hint_y = buttons.quit.y + buttons.quit.h + layout.line_height;
     int hint_w = measure_text_width("ENTER/SPACE FOR NEW GAME", layout.scale);
@@ -436,15 +521,29 @@ void ui_draw_main_menu(RenderContext *ctx, const GameState *state) {
 void ui_draw_pause_menu(RenderContext *ctx, const GameState *state) {
     (void)state;
     MenuLayout layout = draw_panel_base(ctx, "PAUSE", false);
+    s_menu_allow_hover = state->ui.menu_mouse_active;
     SDL_Rect buttons[4];
     int y = layout.body_y;
+    int mouse_x = 0;
+    int mouse_y = 0;
+    SDL_GetMouseState(&mouse_x, &mouse_y);
+    SDL_Rect focused_rect = {0};
     draw_panel_text(ctx, &layout, "GAME PAUSED", y);
     y += layout.line_height * 2;
     menu_vertical_buttons(&layout, buttons, 4, y);
-    draw_button(ctx, buttons[0], "RESUME", false, layout.scale);
-    draw_button(ctx, buttons[1], "SAVE", false, layout.scale);
-    draw_button(ctx, buttons[2], "LOAD", false, layout.scale);
-    draw_button(ctx, buttons[3], "RESIGN", false, layout.scale);
+    draw_button(ctx, buttons[0], "RESUME", false, state->ui.menu_keyboard_active && state->ui.pause_menu_index == 0, layout.scale);
+    draw_button(ctx, buttons[1], "SAVE", false, state->ui.menu_keyboard_active && state->ui.pause_menu_index == 1, layout.scale);
+    draw_button(ctx, buttons[2], "LOAD", false, state->ui.menu_keyboard_active && state->ui.pause_menu_index == 2, layout.scale);
+    draw_button(ctx, buttons[3], "RESIGN", false, state->ui.menu_keyboard_active && state->ui.pause_menu_index == 3, layout.scale);
+    switch (state->ui.pause_menu_index) {
+        case 0: focused_rect = buttons[0]; break;
+        case 1: focused_rect = buttons[1]; break;
+        case 2: focused_rect = buttons[2]; break;
+        case 3: focused_rect = buttons[3]; break;
+        default: break;
+    }
+    (void)mouse_x;
+    (void)mouse_y;
     y = buttons[3].y + buttons[3].h + layout.line_height;
     draw_panel_text(ctx, &layout, "ESC/P TO RESUME  Q/R TO RESIGN", y);
 
@@ -485,13 +584,14 @@ void ui_draw_win_screen(RenderContext *ctx, const GameState *state) {
     }
 
     MenuLayout layout = draw_panel_base(ctx, title, false);
+    s_menu_allow_hover = state->ui.menu_mouse_active;
     SDL_Rect buttons[1];
     int y = layout.body_y;
     snprintf(body, sizeof(body), "%s\nRESULT: %s", state->match.mode, result);
     draw_panel_text(ctx, &layout, body, y);
     y += layout.line_height * 3;
     menu_vertical_buttons(&layout, buttons, 1, y);
-    draw_button(ctx, buttons[0], "MAIN MENU", false, layout.scale);
+    draw_button(ctx, buttons[0], "MAIN MENU", false, state->ui.menu_keyboard_active, layout.scale);
 }
 
 bool ui_handle_main_menu_click(GameState *state, int mouse_x, int mouse_y, int window_w, int window_h, bool *out_request_quit) {
@@ -499,16 +599,17 @@ bool ui_handle_main_menu_click(GameState *state, int mouse_x, int mouse_y, int w
     if (out_request_quit) {
         *out_request_quit = false;
     }
-    MainMenuLayout layout = main_menu_layout(window_w, window_h);
-
     if (state->ui.show_new_menu) {
+        MenuLayout layout = menu_layout(window_w, window_h);
         NewGameButtons buttons = new_game_buttons(&layout);
         if (point_in_rect(mouse_x, mouse_y, buttons.chess)) {
             game_reset(state, "chess");
+            state->ui.new_menu_index = 0;
             return true;
         }
         if (point_in_rect(mouse_x, mouse_y, buttons.checkers)) {
             game_reset(state, "checkers");
+            state->ui.new_menu_index = 1;
             return true;
         }
         if (point_in_rect(mouse_x, mouse_y, buttons.ai_side)) {
@@ -519,11 +620,13 @@ bool ui_handle_main_menu_click(GameState *state, int mouse_x, int mouse_y, int w
             } else {
                 state->ai.side = AI_SIDE_NONE;
             }
+            state->ui.new_menu_index = 2;
             return true;
         }
         for (int i = 0; i < 4; ++i) {
             if (point_in_rect(mouse_x, mouse_y, buttons.depth[i])) {
                 state->ai.depth = i + 1;
+                state->ui.new_menu_index = 3 + i;
                 return true;
             }
         }
@@ -541,14 +644,18 @@ bool ui_handle_main_menu_click(GameState *state, int mouse_x, int mouse_y, int w
         return false;
     }
 
+    MainMenuLayout layout = main_menu_layout(window_w, window_h);
     MenuButtons buttons = main_menu_buttons(&layout);
     if (point_in_rect(mouse_x, mouse_y, buttons.new_game)) {
         state->ui.show_new_menu = true;
+        state->ui.new_menu_index = 0;
         return true;
     }
     if (point_in_rect(mouse_x, mouse_y, buttons.load)) {
         state->ui.show_load_menu = true;
         state->ui.load_needs_refresh = true;
+        state->ui.load_menu_focus = 0;
+        state->ui.load_scroll = 0;
         return true;
     }
     if (point_in_rect(mouse_x, mouse_y, buttons.quit)) {
@@ -572,21 +679,28 @@ bool ui_handle_pause_menu_click(GameState *state, int mouse_x, int mouse_y, int 
     menu_vertical_buttons(&layout, buttons, 4, y);
     if (point_in_rect(mouse_x, mouse_y, buttons[0])) {
         state->ui.show_pause_menu = false;
+        state->ui.pause_menu_index = 0;
         return true;
     }
     if (point_in_rect(mouse_x, mouse_y, buttons[1])) {
         state->ui.show_save_modal = true;
         state->ui.save_len = 0;
         state->ui.save_name[0] = '\0';
+        state->ui.save_menu_index = 0;
+        state->ui.pause_menu_index = 1;
         return true;
     }
     if (point_in_rect(mouse_x, mouse_y, buttons[2])) {
         state->ui.show_load_menu = true;
         state->ui.load_needs_refresh = true;
+        state->ui.load_menu_focus = 0;
+        state->ui.load_scroll = 0;
+        state->ui.pause_menu_index = 2;
         return true;
     }
     if (point_in_rect(mouse_x, mouse_y, buttons[3])) {
         game_resign(state);
+        state->ui.pause_menu_index = 3;
         return true;
     }
     return false;
@@ -625,9 +739,11 @@ int ui_handle_save_modal_click(GameState *state, int mouse_x, int mouse_y, int w
     y = input.y + input.h + layout.line_height;
     menu_vertical_buttons(&layout, buttons, 2, y);
     if (point_in_rect(mouse_x, mouse_y, buttons[0])) {
+        state->ui.save_menu_index = 0;
         return 1; // save
     }
     if (point_in_rect(mouse_x, mouse_y, buttons[1])) {
+        state->ui.save_menu_index = 1;
         return -1; // cancel
     }
     return 0;
@@ -655,6 +771,7 @@ int ui_handle_load_menu_click(GameState *state, int mouse_x, int mouse_y, int wi
         for (int i = 0; i < visible; ++i) {
             if (point_in_rect(mouse_x, mouse_y, buttons[i])) {
                 if (out_index) *out_index = start + i;
+                state->ui.load_menu_focus = start + i;
                 return 1;
             }
         }
@@ -665,6 +782,7 @@ int ui_handle_load_menu_click(GameState *state, int mouse_x, int mouse_y, int wi
     SDL_Rect cancel_btn[1];
     menu_vertical_buttons(&layout, cancel_btn, 1, y);
     if (point_in_rect(mouse_x, mouse_y, cancel_btn[0])) {
+        state->ui.load_menu_focus = state->ui.load_count;
         return -1;
     }
     return 0;
@@ -681,9 +799,11 @@ int ui_handle_load_confirm_click(GameState *state, int mouse_x, int mouse_y, int
     int y = layout.body_y + layout.line_height * 2;
     menu_vertical_buttons(&layout, buttons, 2, y);
     if (point_in_rect(mouse_x, mouse_y, buttons[0])) {
+        state->ui.load_confirm_index = 0;
         return 1;
     }
     if (point_in_rect(mouse_x, mouse_y, buttons[1])) {
+        state->ui.load_confirm_index = 1;
         return -1;
     }
     return 0;
