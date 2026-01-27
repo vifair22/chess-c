@@ -67,7 +67,7 @@ static SDL_Texture *texture_for_piece(RenderContext *ctx, char piece, bool is_ch
         }
     }
     if (idx < 0) return NULL;
-    return ctx->piece_textures[idx];
+    return ctx->assets.piece_textures[idx];
 }
 
 static bool draw_piece_texture(SDL_Renderer *renderer, SDL_Texture *tex, int cell, int center_x, int center_y) {
@@ -124,37 +124,41 @@ bool render_init(RenderContext *ctx, const char *title, int width, int height) {
         return false;
     }
 
-    ctx->window = SDL_CreateWindow(title,
+    ctx->surface.window = SDL_CreateWindow(title,
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         width, height,
         SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
-    if (!ctx->window) {
+    if (!ctx->surface.window) {
         SDL_Log("SDL_CreateWindow failed: %s", SDL_GetError());
+        SDL_Quit();
         return false;
     }
 
-    ctx->renderer = SDL_CreateRenderer(ctx->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-    if (!ctx->renderer) {
+    ctx->surface.renderer = SDL_CreateRenderer(ctx->surface.window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if (!ctx->surface.renderer) {
         SDL_Log("SDL_CreateRenderer failed: %s", SDL_GetError());
+        SDL_DestroyWindow(ctx->surface.window);
+        ctx->surface.window = NULL;
+        SDL_Quit();
         return false;
     }
-    SDL_SetRenderDrawBlendMode(ctx->renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawBlendMode(ctx->surface.renderer, SDL_BLENDMODE_BLEND);
 
-    ctx->window_width = width;
-    ctx->window_height = height;
+    ctx->surface.window_width = width;
+    ctx->surface.window_height = height;
     ctx->last_turn_number = 0;
     ctx->anim.active = false;
-    memset(ctx->legal_alpha, 0, sizeof(ctx->legal_alpha));
-    memset(ctx->highlight_alpha, 0, sizeof(ctx->highlight_alpha));
-    memset(ctx->blocked_alpha, 0, sizeof(ctx->blocked_alpha));
-    memset(ctx->hover_alpha, 0, sizeof(ctx->hover_alpha));
-    memset(ctx->check_alpha, 0, sizeof(ctx->check_alpha));
-    memset(ctx->piece_textures, 0, sizeof(ctx->piece_textures));
+    memset(ctx->overlays.legal_alpha, 0, sizeof(ctx->overlays.legal_alpha));
+    memset(ctx->overlays.highlight_alpha, 0, sizeof(ctx->overlays.highlight_alpha));
+    memset(ctx->overlays.blocked_alpha, 0, sizeof(ctx->overlays.blocked_alpha));
+    memset(ctx->overlays.hover_alpha, 0, sizeof(ctx->overlays.hover_alpha));
+    memset(ctx->overlays.check_alpha, 0, sizeof(ctx->overlays.check_alpha));
+    memset(ctx->assets.piece_textures, 0, sizeof(ctx->assets.piece_textures));
 
     // Build chess piece textures from embedded masks.
-    size_t tex_cap = sizeof(ctx->piece_textures) / sizeof(ctx->piece_textures[0]);
+    size_t tex_cap = sizeof(ctx->assets.piece_textures) / sizeof(ctx->assets.piece_textures[0]);
     for (size_t i = 0; i < kPieceSpriteCount && i < tex_cap; ++i) {
-        ctx->piece_textures[i] = create_texture_from_sprite(ctx->renderer, &kPieceSprites[i]);
+        ctx->assets.piece_textures[i] = create_texture_from_sprite(ctx->surface.renderer, &kPieceSprites[i]);
     }
     return true;
 }
@@ -185,10 +189,10 @@ static void draw_checker_piece(SDL_Renderer *renderer, char piece, const SDL_Rec
 }
 
 static void draw_board(RenderContext *ctx, const GameState *state, int offset_x, int offset_y, int cell, Uint32 now_ms) {
-    SDL_Renderer *renderer = ctx->renderer;
-    int hover_file = state->hover_pos.file;
-    int hover_rank = state->hover_pos.rank;
-    bool is_checkers = strncmp(state->game_mode, "checkers", 8) == 0;
+    SDL_Renderer *renderer = ctx->surface.renderer;
+    int hover_file = state->moves.hover_pos.file;
+    int hover_rank = state->moves.hover_pos.rank;
+    bool is_checkers = strncmp(state->match.mode, "checkers", 8) == 0;
     const float fade_rate = 0.25f;
     // Expire animation if needed.
     if (ctx->anim.active) {
@@ -206,7 +210,7 @@ static void draw_board(RenderContext *ctx, const GameState *state, int offset_x,
             SDL_SetRenderDrawColor(renderer, square.r, square.g, square.b, square.a);
             SDL_RenderFillRect(renderer, &r);
 
-            if (state->selected_file == file && state->selected_rank == rank) {
+            if (state->moves.selected.file == file && state->moves.selected.rank == rank) {
                 draw_highlight(renderer, r, kPalette.select_fill);
                 SDL_SetRenderDrawColor(renderer, kPalette.select_edge.r, kPalette.select_edge.g, kPalette.select_edge.b, kPalette.select_edge.a);
                 SDL_RenderDrawRect(renderer, &r);
@@ -218,11 +222,11 @@ static void draw_board(RenderContext *ctx, const GameState *state, int offset_x,
             float target_blocked = (sq->flags & SQUARE_BLOCKED) ? 1.0f : 0.0f;
             float target_hover = (hover_file == file && hover_rank == rank) ? 1.0f : 0.0f;
             float target_check = (sq->flags & SQUARE_CHECK) ? 1.0f : 0.0f;
-            float *la = &ctx->legal_alpha[rank][file];
-            float *ha = &ctx->highlight_alpha[rank][file];
-            float *ba = &ctx->blocked_alpha[rank][file];
-            float *ho = &ctx->hover_alpha[rank][file];
-            float *ca = &ctx->check_alpha[rank][file];
+            float *la = &ctx->overlays.legal_alpha[rank][file];
+            float *ha = &ctx->overlays.highlight_alpha[rank][file];
+            float *ba = &ctx->overlays.blocked_alpha[rank][file];
+            float *ho = &ctx->overlays.hover_alpha[rank][file];
+            float *ca = &ctx->overlays.check_alpha[rank][file];
             #define FADE(cur, tgt) do { (cur) += (tgt - (cur)) * fade_rate; if ((cur) < 0.001f) (cur) = 0.0f; } while(0)
             FADE(*la, target_legal);
             FADE(*ha, target_highlight);
@@ -290,7 +294,7 @@ static void draw_board(RenderContext *ctx, const GameState *state, int offset_x,
         t = t * t * (3.0f - 2.0f * t); // smoothstep
         float x = ctx->anim.from_px.x + (ctx->anim.to_px.x - ctx->anim.from_px.x) * t;
         float y = ctx->anim.from_px.y + (ctx->anim.to_px.y - ctx->anim.from_px.y) * t;
-        bool is_checkers = strncmp(state->game_mode, "checkers", 8) == 0;
+        bool is_checkers = strncmp(state->match.mode, "checkers", 8) == 0;
         SDL_Texture *tex = texture_for_piece(ctx, ctx->anim.piece, is_checkers);
         if (!tex) {
             SDL_Log("anim overlay skipped: no texture for piece %c", ctx->anim.piece);
@@ -350,17 +354,17 @@ static void draw_debug_overlay(SDL_Renderer *renderer, const GameState *state, i
     char body[256];
 
     // In this loop, ticks and rendering are aligned; show tick rate (fps equivalent).
-    double fps = state->last_fps;
-    double ms = state->last_frame_seconds * 1000.0;
+    double fps = state->perf.last_fps;
+    double ms = state->perf.last_frame_seconds * 1000.0;
 
     snprintf(body, sizeof(body),
         "MODE: %s\n"
         "PHASE: %s\n"
         "TURN: %d\n"
         "TICK: %.1f/s (%.2f ms)",
-        state->game_mode,
-        state->game_phase,
-        state->turn_number,
+        state->match.mode,
+        state->match.phase,
+        state->match.turn_number,
         fps,
         ms);
 
@@ -384,18 +388,18 @@ static void draw_debug_overlay(SDL_Renderer *renderer, const GameState *state, i
 BoardGeometry render_compute_board_geometry(const RenderContext *ctx) {
     BoardGeometry geo = {0};
     int label_margin = 64;
-    int available_width = ctx->window_width - 2 * label_margin;
-    int available_height = ctx->window_height - 2 * label_margin;
+    int available_width = ctx->surface.window_width - 2 * label_margin;
+    int available_height = ctx->surface.window_height - 2 * label_margin;
     int base_size = (available_width > 0 && available_height > 0) ?
         (available_width < available_height ? available_width : available_height) :
-        (ctx->window_width < ctx->window_height ? ctx->window_width : ctx->window_height);
+        (ctx->surface.window_width < ctx->surface.window_height ? ctx->surface.window_width : ctx->surface.window_height);
     int cell = base_size / 8;
     if (cell < 1) {
         cell = 1;
     }
     int board_size = cell * 8; // enforce even cells
-    int offset_x = (ctx->window_width - board_size) / 2;
-    int offset_y = (ctx->window_height - board_size) / 2;
+    int offset_x = (ctx->surface.window_width - board_size) / 2;
+    int offset_y = (ctx->surface.window_height - board_size) / 2;
     geo.offset_x = offset_x;
     geo.offset_y = offset_y;
     geo.cell = cell;
@@ -416,69 +420,71 @@ void render_frame(RenderContext *ctx, GameState *state) {
     snapshot = *state;
     SDL_UnlockMutex(state->mutex);
 
-    SDL_GetWindowSize(ctx->window, &ctx->window_width, &ctx->window_height);
+    SDL_GetWindowSize(ctx->surface.window, &ctx->surface.window_width, &ctx->surface.window_height);
 
-    SDL_SetRenderDrawColor(ctx->renderer, kPalette.background.r, kPalette.background.g, kPalette.background.b, kPalette.background.a);
-    SDL_RenderClear(ctx->renderer);
+    SDL_SetRenderDrawColor(ctx->surface.renderer, kPalette.background.r, kPalette.background.g, kPalette.background.b, kPalette.background.a);
+    SDL_RenderClear(ctx->surface.renderer);
 
     BoardGeometry geo = render_compute_board_geometry(ctx);
 
     // Start a piece animation when the turn number advances.
-    if (snapshot.turn_number != ctx->last_turn_number &&
-        snapshot.move_start.file >= 0 && snapshot.move_start.rank >= 0 &&
-        snapshot.move_end.file >= 0 && snapshot.move_end.rank >= 0) {
+    if (snapshot.match.turn_number != ctx->last_turn_number &&
+        snapshot.last_move.start.file >= 0 && snapshot.last_move.start.rank >= 0 &&
+        snapshot.last_move.end.file >= 0 && snapshot.last_move.end.rank >= 0) {
         ctx->anim.active = true;
-        ctx->anim.piece = snapshot.board_state.squares[snapshot.move_end.rank][snapshot.move_end.file].piece;
-        ctx->anim.from_file = snapshot.move_start.file;
-        ctx->anim.from_rank = snapshot.move_start.rank;
-        ctx->anim.to_file = snapshot.move_end.file;
-        ctx->anim.to_rank = snapshot.move_end.rank;
+        ctx->anim.piece = snapshot.board_state.squares[snapshot.last_move.end.rank][snapshot.last_move.end.file].piece;
+        ctx->anim.from_file = snapshot.last_move.start.file;
+        ctx->anim.from_rank = snapshot.last_move.start.rank;
+        ctx->anim.to_file = snapshot.last_move.end.file;
+        ctx->anim.to_rank = snapshot.last_move.end.rank;
         ctx->anim.start_ms = SDL_GetTicks();
         ctx->anim.duration_ms = 180;
-        ctx->anim.from_px.x = geo.offset_x + (snapshot.move_start.file * geo.cell) + geo.cell / 2.0f;
-        ctx->anim.from_px.y = geo.offset_y + (snapshot.move_start.rank * geo.cell) + geo.cell / 2.0f;
-        ctx->anim.to_px.x = geo.offset_x + (snapshot.move_end.file * geo.cell) + geo.cell / 2.0f;
-        ctx->anim.to_px.y = geo.offset_y + (snapshot.move_end.rank * geo.cell) + geo.cell / 2.0f;
+        ctx->anim.from_px.x = geo.offset_x + (snapshot.last_move.start.file * geo.cell) + geo.cell / 2.0f;
+        ctx->anim.from_px.y = geo.offset_y + (snapshot.last_move.start.rank * geo.cell) + geo.cell / 2.0f;
+        ctx->anim.to_px.x = geo.offset_x + (snapshot.last_move.end.file * geo.cell) + geo.cell / 2.0f;
+        ctx->anim.to_px.y = geo.offset_y + (snapshot.last_move.end.rank * geo.cell) + geo.cell / 2.0f;
     }
-    ctx->last_turn_number = snapshot.turn_number;
+    ctx->last_turn_number = snapshot.match.turn_number;
 
     Uint32 now_ms = SDL_GetTicks();
 
     draw_board(ctx, &snapshot, geo.offset_x, geo.offset_y, geo.cell, now_ms);
-    draw_board_labels(ctx->renderer, geo.offset_x, geo.offset_y, geo.cell, geo.board_size, ctx->window_width, ctx->window_height);
+    draw_board_labels(ctx->surface.renderer, geo.offset_x, geo.offset_y, geo.cell, geo.board_size, ctx->surface.window_width, ctx->surface.window_height);
 
-    if (snapshot.show_main_menu) {
+    if (snapshot.ui.show_main_menu) {
         ui_draw_main_menu(ctx, &snapshot);
-    } else if (snapshot.show_pause_menu) {
+    } else if (snapshot.ui.show_pause_menu) {
         ui_draw_pause_menu(ctx, &snapshot);
-    } else if (strncmp(snapshot.game_phase, "checkmate", 9) == 0 ||
-               strncmp(snapshot.game_phase, "stalemate", 9) == 0 ||
-               strncmp(snapshot.game_phase, "win_", 4) == 0 ||
-               strncmp(snapshot.game_phase, "draw", 4) == 0) {
+    } else if (strncmp(snapshot.match.phase, "checkmate", 9) == 0 ||
+               strncmp(snapshot.match.phase, "stalemate", 9) == 0 ||
+               strncmp(snapshot.match.phase, "win_", 4) == 0 ||
+               strncmp(snapshot.match.phase, "draw", 4) == 0) {
         ui_draw_win_screen(ctx, &snapshot);
     }
-    if (snapshot.show_debug) {
+    if (snapshot.ui.show_debug) {
         debug_overlay_render(ctx, &snapshot);
     }
 
-    SDL_RenderPresent(ctx->renderer);
+    SDL_RenderPresent(ctx->surface.renderer);
 }
 
 void render_shutdown(RenderContext *ctx) {
-    size_t tex_cap = sizeof(ctx->piece_textures) / sizeof(ctx->piece_textures[0]);
+    size_t tex_cap = sizeof(ctx->assets.piece_textures) / sizeof(ctx->assets.piece_textures[0]);
     for (size_t i = 0; i < tex_cap; ++i) {
-        if (ctx->piece_textures[i]) {
-            SDL_DestroyTexture(ctx->piece_textures[i]);
-            ctx->piece_textures[i] = NULL;
+        if (ctx->assets.piece_textures[i]) {
+            SDL_DestroyTexture(ctx->assets.piece_textures[i]);
+            ctx->assets.piece_textures[i] = NULL;
         }
     }
-    if (ctx->renderer) {
-        SDL_DestroyRenderer(ctx->renderer);
-        ctx->renderer = NULL;
+    if (ctx->surface.renderer) {
+        SDL_DestroyRenderer(ctx->surface.renderer);
+        ctx->surface.renderer = NULL;
     }
-    if (ctx->window) {
-        SDL_DestroyWindow(ctx->window);
-        ctx->window = NULL;
+    if (ctx->surface.window) {
+        SDL_DestroyWindow(ctx->surface.window);
+        ctx->surface.window = NULL;
     }
     SDL_Quit();
 }
+
+

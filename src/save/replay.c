@@ -19,20 +19,20 @@ static void ensure_capacity(ReplayRecorder *rec) {
 }
 
 static void snapshot_start_state(ReplayStartState *dst, const GameState *state) {
-    strncpy(dst->game_mode, state->game_mode, sizeof(dst->game_mode) - 1);
+    strncpy(dst->game_mode, state->match.mode, sizeof(dst->game_mode) - 1);
     dst->game_mode[sizeof(dst->game_mode) - 1] = '\0';
-    strncpy(dst->game_phase, state->game_phase, sizeof(dst->game_phase) - 1);
+    strncpy(dst->game_phase, state->match.phase, sizeof(dst->game_phase) - 1);
     dst->game_phase[sizeof(dst->game_phase) - 1] = '\0';
-    dst->white_to_move = state->white_to_move;
-    dst->turn_number = state->turn_number;
-    dst->halfmove_clock = state->halfmove_clock;
-    dst->white_can_castle_kingside = state->white_can_castle_kingside;
-    dst->white_can_castle_queenside = state->white_can_castle_queenside;
-    dst->black_can_castle_kingside = state->black_can_castle_kingside;
-    dst->black_can_castle_queenside = state->black_can_castle_queenside;
-    dst->en_passant_target = state->en_passant_target;
-    dst->promote_white = state->promotion_choice_white;
-    dst->promote_black = state->promotion_choice_black;
+    dst->white_to_move = state->match.white_to_move;
+    dst->turn_number = state->match.turn_number;
+    dst->halfmove_clock = state->chess.rights.halfmove_clock;
+    dst->white_can_castle_kingside = state->chess.rights.white_can_castle_kingside;
+    dst->white_can_castle_queenside = state->chess.rights.white_can_castle_queenside;
+    dst->black_can_castle_kingside = state->chess.rights.black_can_castle_kingside;
+    dst->black_can_castle_queenside = state->chess.rights.black_can_castle_queenside;
+    dst->en_passant_target = state->chess.rights.en_passant_target;
+    dst->promote_white = state->variant.promotion_choice_white;
+    dst->promote_black = state->variant.promotion_choice_black;
     for (int r = 0; r < 8; ++r) {
         for (int f = 0; f < 8; ++f) {
             dst->board[r][f] = state->board_state.squares[r][f].piece;
@@ -368,21 +368,21 @@ bool replay_seed_game(const ReplayStartState *start, GameState *state) {
             state->board_state.squares[r][f].flags = 0;
         }
     }
-    strncpy(state->game_phase, start->game_phase, sizeof(state->game_phase) - 1);
-    state->game_phase[sizeof(state->game_phase) - 1] = '\0';
-    state->white_to_move = start->white_to_move;
-    state->turn_number = start->turn_number;
-    state->halfmove_clock = start->halfmove_clock;
-    state->white_can_castle_kingside = start->white_can_castle_kingside;
-    state->white_can_castle_queenside = start->white_can_castle_queenside;
-    state->black_can_castle_kingside = start->black_can_castle_kingside;
-    state->black_can_castle_queenside = start->black_can_castle_queenside;
-    state->en_passant_target = start->en_passant_target;
-    if (start->promote_white) state->promotion_choice_white = start->promote_white;
-    if (start->promote_black) state->promotion_choice_black = start->promote_black;
-    state->selected_file = -1;
-    state->selected_rank = -1;
-    state->hover_pos = (BoardPos){-1, -1};
+    strncpy(state->match.phase, start->game_phase, sizeof(state->match.phase) - 1);
+    state->match.phase[sizeof(state->match.phase) - 1] = '\0';
+    state->match.white_to_move = start->white_to_move;
+    state->match.turn_number = start->turn_number;
+    state->chess.rights.halfmove_clock = start->halfmove_clock;
+    state->chess.rights.white_can_castle_kingside = start->white_can_castle_kingside;
+    state->chess.rights.white_can_castle_queenside = start->white_can_castle_queenside;
+    state->chess.rights.black_can_castle_kingside = start->black_can_castle_kingside;
+    state->chess.rights.black_can_castle_queenside = start->black_can_castle_queenside;
+    state->chess.rights.en_passant_target = start->en_passant_target;
+    if (start->promote_white) state->variant.promotion_choice_white = start->promote_white;
+    if (start->promote_black) state->variant.promotion_choice_black = start->promote_black;
+    state->moves.selected.file = -1;
+    state->moves.selected.rank = -1;
+    state->moves.hover_pos = (BoardPos){-1, -1};
     game_clear_move_flags(state);
     game_reset_history(state);
     game_recompute_phase(state);
@@ -428,7 +428,7 @@ bool replay_apply_event(const ReplayEvent *ev, GameState *state, bool apply_hove
     switch (ev->type) {
         case REPLAY_EVENT_HOVER:
             if (apply_hover) {
-                state->hover_pos = (BoardPos){ev->file, ev->rank};
+                state->moves.hover_pos = (BoardPos){ev->file, ev->rank};
             }
             return true;
         case REPLAY_EVENT_CLICK:
@@ -436,24 +436,24 @@ bool replay_apply_event(const ReplayEvent *ev, GameState *state, bool apply_hove
             return true;
         case REPLAY_EVENT_EXPECT_ILLEGAL: {
             uint32_t before = replay_checksum(state);
-            int before_turn = state->turn_number;
+            int before_turn = state->match.turn_number;
             game_handle_click(state, ev->file, ev->rank);
             uint32_t after = replay_checksum(state);
-            if (enforce_asserts && (before != after || state->turn_number != before_turn)) {
+            if (enforce_asserts && (before != after || state->match.turn_number != before_turn)) {
                 SDL_Log("replay expect_illegal_move failed at (%d,%d): state changed", ev->file, ev->rank);
                 return false;
             }
             return true;
         }
         case REPLAY_EVENT_ASSERT_TURN:
-            if (enforce_asserts && state->turn_number != ev->arg) {
-                SDL_Log("replay assert_turn failed: expected %d got %d", ev->arg, state->turn_number);
+            if (enforce_asserts && state->match.turn_number != ev->arg) {
+                SDL_Log("replay assert_turn failed: expected %d got %d", ev->arg, state->match.turn_number);
                 return false;
             }
             return true;
         case REPLAY_EVENT_ASSERT_PHASE:
-            if (enforce_asserts && strncmp(state->game_phase, ev->text, sizeof(state->game_phase)) != 0) {
-                SDL_Log("replay assert_phase failed: expected %s got %s", ev->text, state->game_phase);
+            if (enforce_asserts && strncmp(state->match.phase, ev->text, sizeof(state->match.phase)) != 0) {
+                SDL_Log("replay assert_phase failed: expected %s got %s", ev->text, state->match.phase);
                 return false;
             }
             return true;
@@ -461,10 +461,10 @@ bool replay_apply_event(const ReplayEvent *ev, GameState *state, bool apply_hove
             if (!enforce_asserts) return true;
             bool wk, wq, bk, bq;
             parse_castle_rights(ev->text, &wk, &wq, &bk, &bq);
-            if (wk != state->white_can_castle_kingside ||
-                wq != state->white_can_castle_queenside ||
-                bk != state->black_can_castle_kingside ||
-                bq != state->black_can_castle_queenside) {
+            if (wk != state->chess.rights.white_can_castle_kingside ||
+                wq != state->chess.rights.white_can_castle_queenside ||
+                bk != state->chess.rights.black_can_castle_kingside ||
+                bq != state->chess.rights.black_can_castle_queenside) {
                 SDL_Log("replay assert_castle failed: expected rights %s", ev->text);
                 return false;
             }
@@ -472,11 +472,11 @@ bool replay_apply_event(const ReplayEvent *ev, GameState *state, bool apply_hove
         }
         case REPLAY_EVENT_ASSERT_EN_PASSANT:
             if (enforce_asserts &&
-                (state->en_passant_target.file != ev->file ||
-                 state->en_passant_target.rank != ev->rank)) {
+                (state->chess.rights.en_passant_target.file != ev->file ||
+                 state->chess.rights.en_passant_target.rank != ev->rank)) {
                 SDL_Log("replay assert_en_passant failed: expected (%d,%d) got (%d,%d)",
                     ev->file, ev->rank,
-                    state->en_passant_target.file, state->en_passant_target.rank);
+                    state->chess.rights.en_passant_target.file, state->chess.rights.en_passant_target.rank);
                 return false;
             }
             return true;
@@ -491,7 +491,7 @@ bool replay_apply_event(const ReplayEvent *ev, GameState *state, bool apply_hove
                     SDL_Log("replay assert_legal: allowed square out of bounds %d:%d", f, r);
                     return false;
                 }
-                if (!(state->legal_moves[r][f].flags & MOVE_LEGAL)) {
+                if (!(state->moves.legal_moves[r][f].flags & MOVE_LEGAL)) {
                     SDL_Log("replay assert_legal failed: expected legal %d:%d not found", f, r);
                     return false;
                 }
@@ -504,7 +504,7 @@ bool replay_apply_event(const ReplayEvent *ev, GameState *state, bool apply_hove
                     SDL_Log("replay assert_legal: forbidden square out of bounds %d:%d", f, r);
                     return false;
                 }
-                if (state->legal_moves[r][f].flags & MOVE_LEGAL) {
+                if (state->moves.legal_moves[r][f].flags & MOVE_LEGAL) {
                     SDL_Log("replay assert_legal failed: square %d:%d should be illegal", f, r);
                     return false;
                 }
@@ -513,7 +513,7 @@ bool replay_apply_event(const ReplayEvent *ev, GameState *state, bool apply_hove
             if (ev->allowed_count > 0) {
                 for (int r = 0; r < 8; ++r) {
                     for (int f = 0; f < 8; ++f) {
-                        if (state->legal_moves[r][f].flags & MOVE_LEGAL) {
+                        if (state->moves.legal_moves[r][f].flags & MOVE_LEGAL) {
                             if (!square_in_list(f, r, ev->allowed_files, ev->allowed_ranks, ev->allowed_count)) {
                                 SDL_Log("replay assert_legal failed: unexpected legal square %d:%d", f, r);
                                 return false;
@@ -540,8 +540,8 @@ bool replay_apply_events(const ReplayData *data, GameState *state, bool apply_ho
     // If the replay encodes a desired final phase (e.g., resignation/draw agreed),
     // apply it after moves are processed so tests and harnesses see the intended result.
     if (data->has_expect_phase) {
-        strncpy(state->game_phase, data->expect_phase, sizeof(state->game_phase) - 1);
-        state->game_phase[sizeof(state->game_phase) - 1] = '\0';
+        strncpy(state->match.phase, data->expect_phase, sizeof(state->match.phase) - 1);
+        state->match.phase[sizeof(state->match.phase) - 1] = '\0';
     }
     return true;
 }
@@ -555,17 +555,18 @@ uint32_t replay_checksum(const GameState *state) {
             HSTEP(state->board_state.squares[r][f].piece);
         }
     }
-    HSTEP(state->white_to_move);
-    HSTEP(state->turn_number);
-    HSTEP(state->white_can_castle_kingside);
-    HSTEP(state->white_can_castle_queenside);
-    HSTEP(state->black_can_castle_kingside);
-    HSTEP(state->black_can_castle_queenside);
-    HSTEP(state->en_passant_target.file);
-    HSTEP(state->en_passant_target.rank);
-    for (size_t i = 0; i < sizeof(state->game_phase); ++i) {
-        HSTEP(state->game_phase[i]);
+    HSTEP(state->match.white_to_move);
+    HSTEP(state->match.turn_number);
+    HSTEP(state->chess.rights.white_can_castle_kingside);
+    HSTEP(state->chess.rights.white_can_castle_queenside);
+    HSTEP(state->chess.rights.black_can_castle_kingside);
+    HSTEP(state->chess.rights.black_can_castle_queenside);
+    HSTEP(state->chess.rights.en_passant_target.file);
+    HSTEP(state->chess.rights.en_passant_target.rank);
+    for (size_t i = 0; i < sizeof(state->match.phase); ++i) {
+        HSTEP(state->match.phase[i]);
     }
     #undef HSTEP
     return h;
 }
+

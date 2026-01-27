@@ -39,11 +39,11 @@ void debug_overlay_render(RenderContext *ctx, const GameState *state) {
     char body[256];
 
     // In this loop, render and tick are synced; show tick rate (fps equivalent).
-    double fps = state->smoothed_fps > 0.0 ? state->smoothed_fps : state->last_fps;
-    double ms = state->smoothed_frame_ms > 0.0 ? state->smoothed_frame_ms : state->last_frame_seconds * 1000.0;
+    double fps = state->perf.smoothed_fps > 0.0 ? state->perf.smoothed_fps : state->perf.last_fps;
+    double ms = state->perf.smoothed_frame_ms > 0.0 ? state->perf.smoothed_frame_ms : state->perf.last_frame_seconds * 1000.0;
 
-    const char *ui_state = state->show_main_menu ? "main menu" :
-                           state->show_pause_menu ? "pause menu" : "playing";
+    const char *ui_state = state->ui.show_main_menu ? "main menu" :
+                           state->ui.show_pause_menu ? "pause menu" : "playing";
 
     snprintf(body, sizeof(body),
         "MODE: %s\n"
@@ -52,11 +52,11 @@ void debug_overlay_render(RenderContext *ctx, const GameState *state) {
         "TURN: %d\n"
         "TIME: %.0fs\n"
         "TPS: %.1f (%.2f ms)",
-        state->game_mode,
+        state->match.mode,
         ui_state,
-        state->game_phase,
-        state->turn_number,
-        state->game_time.total_seconds,
+        state->match.phase,
+        state->match.turn_number,
+        state->match.game_time.total_seconds,
         fps,
         ms);
 
@@ -67,12 +67,14 @@ void debug_overlay_render(RenderContext *ctx, const GameState *state) {
 
     int box_w = text_width + padding * 2;
     int box_h = text_height + padding * 2;
-    SDL_Rect box = {padding, ctx->window_height - box_h - padding, box_w, box_h};
+    SDL_Rect box = {padding, ctx->surface.window_height - box_h - padding, box_w, box_h};
 
     SDL_Color bg = kPalette.panel_backdrop;
     bg.a = 96; // more transparent
-    SDL_SetRenderDrawColor(ctx->renderer, bg.r, bg.g, bg.b, bg.a);
-    SDL_RenderFillRect(ctx->renderer, &box);
+    SDL_SetRenderDrawColor(ctx->surface.renderer, bg.r, bg.g, bg.b, bg.a);
+    SDL_RenderFillRect(ctx->surface.renderer, &box);
 
-    draw_text(ctx->renderer, box.x + padding, box.y + padding, scale, kPalette.panel_text, body);
+    draw_text(ctx->surface.renderer, box.x + padding, box.y + padding, scale, kPalette.panel_text, body);
 }
+
+

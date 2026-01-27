@@ -11,25 +11,40 @@ typedef struct {
     SDL_Renderer *renderer;
     int window_width;
     int window_height;
+} RenderSurface;
+
+typedef struct {
     SDL_Texture *piece_textures[16]; // chess pieces + checkers variants
-    // Animation state
-    struct {
-        bool active;
-        char piece;
-        int from_file, from_rank;
-        int to_file, to_rank;
-        Uint32 start_ms;
-        Uint32 duration_ms;
-        SDL_FPoint from_px;
-        SDL_FPoint to_px;
-    } anim;
-    int last_turn_number;
+} RenderAssets;
+
+typedef struct {
+    bool active;
+    char piece;
+    int from_file;
+    int from_rank;
+    int to_file;
+    int to_rank;
+    Uint32 start_ms;
+    Uint32 duration_ms;
+    SDL_FPoint from_px;
+    SDL_FPoint to_px;
+} RenderAnim;
+
+typedef struct {
     // Overlay fade state (0..1)
     float legal_alpha[8][8];
     float highlight_alpha[8][8];
     float blocked_alpha[8][8];
     float hover_alpha[8][8];
     float check_alpha[8][8];
+} RenderOverlays;
+
+typedef struct {
+    RenderSurface surface;
+    RenderAssets assets;
+    RenderAnim anim;
+    RenderOverlays overlays;
+    int last_turn_number;
 } RenderContext;
 
 typedef struct {

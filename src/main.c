@@ -10,6 +10,25 @@
 #include "save/replay.h"
 
 static void replay_print_stats(const ReplayData *rep);
+static void print_usage(const char *exe, bool to_stderr);
+
+static void print_usage(const char *exe, bool to_stderr) {
+    FILE *out = to_stderr ? stderr : stdout;
+    fprintf(out,
+        "Usage: %s [options]\n"
+        "\n"
+        "Options:\n"
+        "  --record <path>      Record a replay (saved on exit).\n"
+        "  --replay <path>      Load and play a replay.\n"
+        "  --headless           Run without a window (use with --replay).\n"
+        "  --no-headless        Force windowed mode.\n"
+        "  --test               Enable replay assertions and exit on failure.\n"
+        "  --help               Show this help.\n"
+        "\n"
+        "Notes:\n"
+        "  --headless is intended for replay verification. Use with --replay.\n",
+        exe ? exe : "chess-c");
+}
 
 int main(int argc, char **argv) {
     const char *record_path = NULL;
@@ -25,6 +44,7 @@ int main(int argc, char **argv) {
     bool replay_hold_active = false;
     Uint32 replay_hold_until = 0;
 
+    bool saw_error = false;
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--record") == 0 && i + 1 < argc) {
             record_path = argv[++i];
@@ -38,22 +58,51 @@ int main(int argc, char **argv) {
             headless_flag = -1;
         } else if (strcmp(argv[i], "--test") == 0) {
             test_mode = true;
+        } else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+            print_usage(argv[0], false);
+            return 0;
+        } else {
+            fprintf(stderr, "Unknown or incomplete option: %s\n", argv[i]);
+            saw_error = true;
         }
+    }
+    if (saw_error) {
+        print_usage(argv[0], true);
+        return 2;
     }
 
     if (test_mode && headless_flag == 0) {
         headless = true; // default headless in test mode unless explicitly overridden
     }
 
+    if (headless && !replay_path) {
+        fprintf(stderr, "--headless requires --replay. Use --help for examples.\n");
+        print_usage(argv[0], true);
+        return 2;
+    }
+
     RenderContext render = {0};
     GameState game = {0};
+    bool render_ready = false;
 
-    if (!render_init(&render, "Chess C", 800, 800)) {
-        return 1;
+    if (headless) {
+        if (SDL_Init(SDL_INIT_TIMER) != 0) {
+            SDL_Log("SDL_Init (timer) failed: %s", SDL_GetError());
+            return 1;
+        }
+    } else {
+        if (!render_init(&render, "Chess C", 800, 800)) {
+            return 1;
+        }
+        render_ready = true;
     }
 
     if (!game_init(&game)) {
-        render_shutdown(&render);
+        if (render_ready) {
+            render_shutdown(&render);
+        } else {
+            SDL_Quit();
+        }
         return 1;
     }
 
@@ -67,13 +116,17 @@ int main(int argc, char **argv) {
         ReplayData replay = {0};
         if (!replay_load(replay_path, &replay)) {
             SDL_Log("Failed to load replay: %s", replay_path);
-            render_shutdown(&render);
+            if (render_ready) {
+                render_shutdown(&render);
+            } else {
+                SDL_Quit();
+            }
             game_destroy(&game);
             return 1;
         }
         replay_seed_game(&replay.start, &game);
-        game.show_main_menu = false;
-        game.show_pause_menu = false;
+        game.ui.show_main_menu = false;
+        game.ui.show_pause_menu = false;
         replay_print_stats(&replay);
         bool apply_ok = replay_apply_events(&replay, &game, false);
         if (!apply_ok) {
@@ -82,18 +135,18 @@ int main(int argc, char **argv) {
         uint32_t sum = replay_checksum(&game);
         printf("REPLAY_FILE %s\n", replay_path);
         printf("REPLAY_CHECKSUM %u\n", sum);
-        printf("REPLAY_TURN %d\n", game.turn_number);
-        printf("REPLAY_PHASE %s\n", game.game_phase);
+        printf("REPLAY_TURN %d\n", game.match.turn_number);
+        printf("REPLAY_PHASE %s\n", game.match.phase);
 
         bool ok = apply_ok;
         if (apply_ok) {
-            if (replay.has_expect_phase && strncmp(game.game_phase, replay.expect_phase, sizeof(game.game_phase)) != 0) {
+            if (replay.has_expect_phase && strncmp(game.match.phase, replay.expect_phase, sizeof(game.match.phase)) != 0) {
                 ok = false;
-                printf("EXPECT_PHASE %s GOT %s\n", replay.expect_phase, game.game_phase);
+                printf("EXPECT_PHASE %s GOT %s\n", replay.expect_phase, game.match.phase);
             }
-            if (replay.has_expect_turn && game.turn_number != replay.expect_turn) {
+            if (replay.has_expect_turn && game.match.turn_number != replay.expect_turn) {
                 ok = false;
-                printf("EXPECT_TURN %d GOT %d\n", replay.expect_turn, game.turn_number);
+                printf("EXPECT_TURN %d GOT %d\n", replay.expect_turn, game.match.turn_number);
             }
             if (replay.has_expect_checksum && sum != replay.expect_checksum) {
                 ok = false;
@@ -115,7 +168,11 @@ int main(int argc, char **argv) {
         }
         printf("RESULT %s\n", ok ? "PASS" : "FAIL");
         replay_free(&replay);
-        render_shutdown(&render);
+        if (render_ready) {
+            render_shutdown(&render);
+        } else {
+            SDL_Quit();
+        }
         game_destroy(&game);
         return ok ? 0 : 1;
     }
@@ -126,8 +183,8 @@ int main(int argc, char **argv) {
             SDL_Log("Failed to load replay: %s", replay_path);
         } else {
             replay_seed_game(&live_replay.start, &game);
-            game.show_main_menu = false;
-            game.show_pause_menu = false;
+            game.ui.show_main_menu = false;
+            game.ui.show_pause_menu = false;
             live_replay_active = true;
             live_replay_start_ticks = SDL_GetTicks();
             live_replay_index = 0;
@@ -153,27 +210,27 @@ int main(int argc, char **argv) {
         }
 
         if (test_mode || live_replay_active) {
-            game.show_main_menu = false;
-            game.show_pause_menu = false;
+            game.ui.show_main_menu = false;
+            game.ui.show_pause_menu = false;
         }
 
         if (SDL_LockMutex(game.mutex) != 0) {
             SDL_Log("SDL_LockMutex failed: %s", SDL_GetError());
         } else {
-            if (!game.show_main_menu && !game.show_pause_menu) {
-                game.game_time.total_seconds += delta_seconds;
+            if (!game.ui.show_main_menu && !game.ui.show_pause_menu) {
+                game.match.game_time.total_seconds += delta_seconds;
             }
-            game.last_frame_seconds = delta_seconds;
-            game.last_fps = fps;
-            game.perf_accum_time += delta_seconds;
-            game.perf_accum_frames += 1;
-            if (game.perf_accum_time >= 0.5) { // update display every ~0.5s
-                double avg_ms = (game.perf_accum_time / game.perf_accum_frames) * 1000.0;
-                double avg_fps = game.perf_accum_frames / game.perf_accum_time;
-                game.smoothed_frame_ms = avg_ms;
-                game.smoothed_fps = avg_fps;
-                game.perf_accum_time = 0.0;
-                game.perf_accum_frames = 0;
+            game.perf.last_frame_seconds = delta_seconds;
+            game.perf.last_fps = fps;
+            game.perf.accum_time += delta_seconds;
+            game.perf.accum_frames += 1;
+            if (game.perf.accum_time >= 0.5) { // update display every ~0.5s
+                double avg_ms = (game.perf.accum_time / game.perf.accum_frames) * 1000.0;
+                double avg_fps = game.perf.accum_frames / game.perf.accum_time;
+                game.perf.smoothed_frame_ms = avg_ms;
+                game.perf.smoothed_fps = avg_fps;
+                game.perf.accum_time = 0.0;
+                game.perf.accum_frames = 0;
             }
             SDL_UnlockMutex(game.mutex);
         }
@@ -199,31 +256,35 @@ int main(int argc, char **argv) {
             }
         }
 
-        render_frame(&render, &game);
+        if (render_ready) {
+            render_frame(&render, &game);
+        }
 
         if (test_mode && replay_path && !live_replay_active && !headless && !replay_evaluated) {
             // Force intended final phase (e.g., resign/draw-agreed) before evaluating.
             if (live_replay.has_expect_phase) {
-                strncpy(game.game_phase, live_replay.expect_phase, sizeof(game.game_phase) - 1);
-                game.game_phase[sizeof(game.game_phase) - 1] = '\0';
+                strncpy(game.match.phase, live_replay.expect_phase, sizeof(game.match.phase) - 1);
+                game.match.phase[sizeof(game.match.phase) - 1] = '\0';
             }
             // Render once more with the terminal phase before evaluating/printing.
-            render_frame(&render, &game);
+            if (render_ready) {
+                render_frame(&render, &game);
+            }
 
             // Evaluate expectations in visual test mode and exit automatically.
             uint32_t sum = replay_checksum(&game);
             printf("REPLAY_FILE %s\n", replay_path);
             printf("REPLAY_CHECKSUM %u\n", sum);
-            printf("REPLAY_TURN %d\n", game.turn_number);
-            printf("REPLAY_PHASE %s\n", game.game_phase);
+            printf("REPLAY_TURN %d\n", game.match.turn_number);
+            printf("REPLAY_PHASE %s\n", game.match.phase);
             bool ok = true;
-            if (live_replay.has_expect_phase && strncmp(game.game_phase, live_replay.expect_phase, sizeof(game.game_phase)) != 0) {
+            if (live_replay.has_expect_phase && strncmp(game.match.phase, live_replay.expect_phase, sizeof(game.match.phase)) != 0) {
                 ok = false;
-                printf("EXPECT_PHASE %s GOT %s\n", live_replay.expect_phase, game.game_phase);
+                printf("EXPECT_PHASE %s GOT %s\n", live_replay.expect_phase, game.match.phase);
             }
-            if (live_replay.has_expect_turn && game.turn_number != live_replay.expect_turn) {
+            if (live_replay.has_expect_turn && game.match.turn_number != live_replay.expect_turn) {
                 ok = false;
-                printf("EXPECT_TURN %d GOT %d\n", live_replay.expect_turn, game.turn_number);
+                printf("EXPECT_TURN %d GOT %d\n", live_replay.expect_turn, game.match.turn_number);
             }
             if (live_replay.has_expect_checksum && sum != live_replay.expect_checksum) {
                 ok = false;
@@ -261,7 +322,11 @@ int main(int argc, char **argv) {
     }
 
     game_destroy(&game);
-    render_shutdown(&render);
+    if (render_ready) {
+        render_shutdown(&render);
+    } else {
+        SDL_Quit();
+    }
     if (live_replay.event_count > 0) {
         replay_free(&live_replay);
     }

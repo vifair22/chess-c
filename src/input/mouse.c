@@ -21,7 +21,7 @@ void mouse_handle_event(GameState *game, const RenderContext *render, const SDL_
             SDL_Log("SDL_LockMutex failed: %s", SDL_GetError());
             return;
         }
-        game->hover_pos = (BoardPos){file, rank};
+        game->moves.hover_pos = (BoardPos){file, rank};
         SDL_UnlockMutex(game->mutex);
         if (replay_global_recording()) {
             replay_recorder_record_hover(replay_global_recorder(), SDL_GetTicks(), file, rank);
@@ -33,7 +33,7 @@ void mouse_handle_event(GameState *game, const RenderContext *render, const SDL_
         return;
     }
 
-    if (game->show_main_menu || game->show_pause_menu) {
+    if (game->ui.show_main_menu || game->ui.show_pause_menu) {
         return; // ignore board clicks while menus are open
     }
 
@@ -52,3 +52,4 @@ void mouse_handle_event(GameState *game, const RenderContext *render, const SDL_
     }
     SDL_UnlockMutex(game->mutex);
 }
+

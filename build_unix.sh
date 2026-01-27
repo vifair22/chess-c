@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BUILD_DIR="${PROJECT_DIR}/build-unix"
+BUILD_DIR="${PROJECT_DIR}/build"
 CONFIG="${CONFIG:-Release}"
 
 if command -v ninja >/dev/null 2>&1; then

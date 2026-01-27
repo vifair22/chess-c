@@ -45,39 +45,79 @@ enum MoveFlags {
 };
 
 typedef struct {
-    SDL_mutex *mutex;
-    BoardState board_state;
-    MoveHint legal_moves[8][8]; // metadata for legal destinations
-    bool white_to_move;
-    int selected_file; // 0-7, -1 when nothing selected
-    int selected_rank; // 0-7, -1 when nothing selected
+    int file; // 0-7, -1 when unset
+    int rank; // 0-7, -1 when unset
+} Selection;
+
+typedef struct {
+    Selection selected;
     BoardPos hover_pos; // current hover/preview square
-    char game_mode[16]; // e.g., "chess", "checkers", "ataxx"
-    int turn_number;
-    GameTime game_time;
-    char game_phase[24]; // e.g., "play", "checkmate", "win_white_resign"
+    MoveHint legal_moves[8][8]; // metadata for legal destinations
+} MoveContext;
+
+typedef struct {
     bool white_can_castle_kingside;
     bool white_can_castle_queenside;
     bool black_can_castle_kingside;
     bool black_can_castle_queenside;
     BoardPos en_passant_target; // square that can be captured en passant, -1/-1 if none
-    BoardPos move_start;
-    BoardPos move_end;
-    bool checkers_must_continue; // true when a multi-jump is in progress
+    int halfmove_clock; // half-move counter for fifty-move rule
+} ChessRights;
+
+typedef struct {
+    uint64_t hashes[512]; // recent position hashes for repetition
+    int len;
+} PositionHistory;
+
+typedef struct {
+    ChessRights rights;
+    PositionHistory history;
+} ChessRulesState;
+
+typedef struct {
+    BoardPos start;
+    BoardPos end;
+} LastMove;
+
+typedef struct {
     bool show_main_menu;
     bool show_pause_menu;
+    bool show_debug;
+} UiState;
+
+typedef struct {
     double last_frame_seconds; // duration of last frame/tick
     double last_fps;           // frames (ticks) per second
     double smoothed_frame_ms;
     double smoothed_fps;
-    double perf_accum_time;
-    int perf_accum_frames;
-    bool show_debug;
+    double accum_time;
+    int accum_frames;
+} PerfState;
+
+typedef struct {
+    char mode[16]; // e.g., "chess", "checkers"
+    char phase[24]; // e.g., "play", "checkmate", "win_white_resign"
+    bool white_to_move;
+    int turn_number;
+    GameTime game_time;
+} MatchState;
+
+typedef struct {
+    bool checkers_must_continue; // true when a multi-jump is in progress
     char promotion_choice_white; // desired promotion piece for white (uppercase)
     char promotion_choice_black; // desired promotion piece for black (lowercase)
-    int halfmove_clock; // half-move counter for fifty-move rule
-    uint64_t position_history[512]; // recent position hashes for repetition
-    int position_history_len;
+} VariantState;
+
+typedef struct {
+    SDL_mutex *mutex;
+    BoardState board_state;
+    MatchState match;
+    MoveContext moves;
+    LastMove last_move;
+    VariantState variant;
+    ChessRulesState chess;
+    UiState ui;
+    PerfState perf;
 } GameState;
 
 bool game_init(GameState *state);

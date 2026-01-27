@@ -31,7 +31,9 @@ static int run_game(const char *exe, const char *rep, int watch, char *reason, s
             saw_result = true;
             pass = strstr(line, "PASS") != NULL;
         }
-        fputs(line, stdout);
+        if (watch) {
+            fputs(line, stdout);
+        }
     }
     int rc = _pclose(fp);
     double dur = 0.0;
@@ -120,7 +122,9 @@ int main(int argc, char **argv) {
         }
         const char *name_only = strrchr(single_file, '\\');
         name_only = name_only ? name_only + 1 : single_file;
-        printf("\n=== RUN %s ===\n", name_only);
+        if (watch) {
+            printf("\n=== RUN %s ===\n", name_only);
+        }
         char reason[128] = {0};
         double dur = 0.0;
         int res = run_game(exe, single_file, watch, reason, sizeof(reason), &dur);
@@ -133,9 +137,11 @@ int main(int argc, char **argv) {
                 strncpy(failed_reasons[failed_count - 1], reason, sizeof(failed_reasons[0]) - 1);
                 failed_reasons[failed_count - 1][sizeof(failed_reasons[0]) - 1] = '\0';
             }
-            printf("-> FAIL (%s) [%.2fs]\n", reason, dur);
+            printf("-> FAIL %s (%s) [%.2fs]\n", name_only, reason, dur);
         } else {
-            printf("-> PASS [%.2fs]\n", dur);
+            if (watch) {
+                printf("-> PASS [%.2fs]\n", dur);
+            }
         }
     } else {
         if (!_fullpath(dir_buf, dir, sizeof(dir_buf))) {
@@ -158,7 +164,9 @@ int main(int argc, char **argv) {
             if (find.attrib & _A_SUBDIR) continue;
             char path[512];
             snprintf(path, sizeof(path), "%s\\%s", dir, find.name);
-            printf("\n=== RUN %s ===\n", find.name);
+            if (watch) {
+                printf("\n=== RUN %s ===\n", find.name);
+            }
             char reason[128] = {0};
             double dur = 0.0;
             int res = run_game(exe, path, watch, reason, sizeof(reason), &dur);
@@ -171,9 +179,11 @@ int main(int argc, char **argv) {
                     strncpy(failed_reasons[failed_count - 1], reason, sizeof(failed_reasons[0]) - 1);
                     failed_reasons[failed_count - 1][sizeof(failed_reasons[0]) - 1] = '\0';
                 }
-                printf("-> FAIL (%s) [%.2fs]\n", reason, dur);
+                printf("-> FAIL %s (%s) [%.2fs]\n", find.name, reason, dur);
             } else {
-                printf("-> PASS [%.2fs]\n", dur);
+                if (watch) {
+                    printf("-> PASS [%.2fs]\n", dur);
+                }
             }
         } while (_findnext(handle, &find) == 0);
         _findclose(handle);
