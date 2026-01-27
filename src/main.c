@@ -57,8 +57,7 @@ int main(int argc, char **argv) {
     bool replay_evaluated = false;
     bool replay_hold_active = false;
     Uint32 replay_hold_until = 0;
-    int last_saved_turn = -1;
-    bool terminal_saved = false;
+    bool text_input_active = false;
 
     bool saw_error = false;
     for (int i = 1; i < argc; ++i) {
@@ -124,9 +123,8 @@ int main(int argc, char **argv) {
 
     ensure_replay_dir();
 
-    // Start recording for live games (always-on unless replaying).
+    // Prepare auto-record path for live games (recording begins on game start, not in menus).
     if (!replay_path) {
-        replay_global_start(&game, SDL_GetTicks());
         if (!record_path) {
             time_t now = time(NULL);
             struct tm local_tm;
@@ -237,6 +235,19 @@ int main(int argc, char **argv) {
             mouse_handle_event(&game, &render, &e);
         }
 
+        bool want_text_input = false;
+        if (SDL_LockMutex(game.mutex) == 0) {
+            want_text_input = game.ui.show_save_modal;
+            SDL_UnlockMutex(game.mutex);
+        }
+        if (want_text_input && !text_input_active) {
+            SDL_StartTextInput();
+            text_input_active = true;
+        } else if (!want_text_input && text_input_active) {
+            SDL_StopTextInput();
+            text_input_active = false;
+        }
+
         if (test_mode || live_replay_active) {
             game.ui.show_main_menu = false;
             game.ui.show_pause_menu = false;
@@ -308,13 +319,13 @@ int main(int argc, char **argv) {
                               strncmp(game.match.phase, "draw", 4) == 0;
                 SDL_UnlockMutex(game.mutex);
             }
-            if (turn_number != last_saved_turn) {
+            if (turn_number != game.autosave_last_turn) {
                 should_save = true;
-                last_saved_turn = turn_number;
+                game.autosave_last_turn = turn_number;
             }
-            if (is_terminal && !terminal_saved) {
+            if (is_terminal && !game.autosave_terminal_saved) {
                 should_save = true;
-                terminal_saved = true;
+                game.autosave_terminal_saved = true;
             }
             if (should_save) {
                 ensure_replay_dir();
@@ -322,7 +333,7 @@ int main(int argc, char **argv) {
                 if (!replay_global_append(path)) {
                     SDL_Log("Failed to autosave replay");
                 }
-                if (terminal_saved) {
+                if (game.autosave_terminal_saved) {
                     if (!replay_global_write_end(path)) {
                         SDL_Log("Failed to finalize replay");
                     }
@@ -386,7 +397,7 @@ int main(int argc, char **argv) {
 
     if (replay_global_recording()) {
         const char *path = record_path ? record_path : auto_record_path;
-        if (!terminal_saved) {
+        if (!game.autosave_terminal_saved) {
             ensure_replay_dir();
             if (!replay_global_append(path)) {
                 SDL_Log("Failed to save replay to %s", path);

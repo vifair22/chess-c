@@ -49,6 +49,8 @@ typedef struct {
     bool white_to_move;
     int turn_number;
     int halfmove_clock;
+    int ai_side;
+    int ai_depth;
     bool white_can_castle_kingside;
     bool white_can_castle_queenside;
     bool black_can_castle_kingside;

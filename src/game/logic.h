@@ -84,6 +84,17 @@ typedef struct {
     bool show_pause_menu;
     bool show_debug;
     bool undo_used;
+    bool show_save_modal;
+    bool show_load_menu;
+    bool show_load_confirm;
+    bool show_new_menu;
+    bool load_needs_refresh;
+    char save_name[64];
+    int save_len;
+    char load_names[32][64];
+    int load_count;
+    int load_scroll;
+    int load_selected;
 } UiState;
 
 typedef struct {
@@ -136,6 +147,8 @@ typedef struct {
     struct GameSnapshot *snapshots;
     int snapshot_len;
     int snapshot_cap;
+    int autosave_last_turn;
+    bool autosave_terminal_saved;
 } GameState;
 
 bool game_init(GameState *state);

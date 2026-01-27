@@ -1459,6 +1459,17 @@ void game_reset(GameState *state, const char *mode) {
     state->chess.history.len = 0;
     state->snapshot_len = 0;
     state->ui.undo_used = false;
+    state->ui.show_save_modal = false;
+    state->ui.show_load_menu = false;
+    state->ui.show_load_confirm = false;
+    state->ui.load_needs_refresh = false;
+    state->ui.save_len = 0;
+    state->ui.save_name[0] = '\0';
+    state->ui.load_count = 0;
+    state->ui.load_scroll = 0;
+    state->ui.load_selected = -1;
+    state->autosave_last_turn = -1;
+    state->autosave_terminal_saved = false;
 
     game_clear_move_flags(state);
     reset_position_history(state);

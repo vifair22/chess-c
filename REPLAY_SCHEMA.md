@@ -9,6 +9,9 @@ mode <game_mode>
 phase <game_phase>
 white_to_move <0|1>
 turn <number>
+halfmove <number>
+ai_side <number>
+ai_depth <number>
 castle <rights>
 en_passant <file> <rank>
 [promote_white <piece>]
@@ -27,6 +30,9 @@ Sections must appear in the order above. Lines are plain ASCII, newline-separate
 - `phase`: game phase string, e.g. `play`, `check`, `checkmate`, `stalemate`, `win_white_resign`, etc.
 - `white_to_move`: `1` if White to move, `0` otherwise.
 - `turn`: integer turn counter.
+- `halfmove`: half-move counter for fifty-move rule.
+- `ai_side`: `0` = off, `1` = white, `2` = black.
+- `ai_depth`: integer AI search depth (1–4 recommended).
 - `castle`: castling rights; any combination of `KQkq`, or `-` if none.
 - `en_passant`: target square for en passant; `file rank` (0–7) or `-1 -1` if none.
 - `promote_white` (optional): default promotion piece for White (uppercase, e.g. `Q`).

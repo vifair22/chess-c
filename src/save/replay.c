@@ -26,6 +26,8 @@ static void snapshot_start_state(ReplayStartState *dst, const GameState *state) 
     dst->white_to_move = state->match.white_to_move;
     dst->turn_number = state->match.turn_number;
     dst->halfmove_clock = state->chess.rights.halfmove_clock;
+    dst->ai_side = (int)state->ai.side;
+    dst->ai_depth = state->ai.depth;
     dst->white_can_castle_kingside = state->chess.rights.white_can_castle_kingside;
     dst->white_can_castle_queenside = state->chess.rights.white_can_castle_queenside;
     dst->black_can_castle_kingside = state->chess.rights.black_can_castle_kingside;
@@ -139,6 +141,8 @@ bool replay_recorder_save(const ReplayRecorder *rec, const char *path) {
     fprintf(f, "white_to_move %d\n", rec->start.white_to_move ? 1 : 0);
     fprintf(f, "turn %d\n", rec->start.turn_number);
     fprintf(f, "halfmove %d\n", rec->start.halfmove_clock);
+    fprintf(f, "ai_side %d\n", rec->start.ai_side);
+    fprintf(f, "ai_depth %d\n", rec->start.ai_depth);
     char castle[8];
     castle_string(&rec->start, castle, sizeof(castle));
     fprintf(f, "castle %s\n", castle);
@@ -181,6 +185,8 @@ bool replay_recorder_write_header(ReplayRecorder *rec, const char *path) {
     fprintf(f, "white_to_move %d\n", rec->start.white_to_move ? 1 : 0);
     fprintf(f, "turn %d\n", rec->start.turn_number);
     fprintf(f, "halfmove %d\n", rec->start.halfmove_clock);
+    fprintf(f, "ai_side %d\n", rec->start.ai_side);
+    fprintf(f, "ai_depth %d\n", rec->start.ai_depth);
     char castle[8];
     castle_string(&rec->start, castle, sizeof(castle));
     fprintf(f, "castle %s\n", castle);
@@ -271,6 +277,10 @@ static bool parse_start_state(FILE *f, ReplayStartState *start) {
             start->turn_number = atoi(p + 5);
         } else if (strncmp(p, "halfmove ", 9) == 0) {
             start->halfmove_clock = atoi(p + 9);
+        } else if (strncmp(p, "ai_side ", 8) == 0) {
+            start->ai_side = atoi(p + 8);
+        } else if (strncmp(p, "ai_depth ", 9) == 0) {
+            start->ai_depth = atoi(p + 9);
         } else if (strncmp(p, "castle ", 7) == 0) {
             const char *c = p + 7;
             start->white_can_castle_kingside = strchr(c, 'K') != NULL;
@@ -488,6 +498,12 @@ bool replay_seed_game(const ReplayStartState *start, GameState *state) {
     state->match.white_to_move = start->white_to_move;
     state->match.turn_number = start->turn_number;
     state->chess.rights.halfmove_clock = start->halfmove_clock;
+    if (start->ai_side >= AI_SIDE_NONE && start->ai_side <= AI_SIDE_BLACK) {
+        state->ai.side = (AiSide)start->ai_side;
+    }
+    if (start->ai_depth > 0) {
+        state->ai.depth = start->ai_depth;
+    }
     state->chess.rights.white_can_castle_kingside = start->white_can_castle_kingside;
     state->chess.rights.white_can_castle_queenside = start->white_can_castle_queenside;
     state->chess.rights.black_can_castle_kingside = start->black_can_castle_kingside;
