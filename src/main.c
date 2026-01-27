@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #include "ai/ai.h"
 #include "game/logic.h"
@@ -33,6 +34,7 @@ static void print_usage(const char *exe, bool to_stderr) {
 
 int main(int argc, char **argv) {
     const char *record_path = NULL;
+    char auto_record_path[256] = "replays/auto_latest.replay";
     const char *replay_path = NULL;
     bool headless = false;
     int headless_flag = 0; // 0 = unset, 1 = force headless, -1 = force windowed
@@ -107,8 +109,8 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    // Start recording if requested.
-    if (record_path) {
+    // Start recording for live games (always-on unless replaying).
+    if (!replay_path) {
         replay_global_start(&game, SDL_GetTicks());
     }
 
@@ -323,9 +325,20 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (record_path && replay_global_recording()) {
-        if (!replay_global_save(record_path)) {
-            SDL_Log("Failed to save replay to %s", record_path);
+    if (replay_global_recording()) {
+        if (!record_path) {
+            time_t now = time(NULL);
+            struct tm local_tm;
+            if (localtime_s(&local_tm, &now) == 0) {
+                char stamp[64];
+                if (strftime(stamp, sizeof(stamp), "%Y%m%d_%H%M%S", &local_tm) > 0) {
+                    snprintf(auto_record_path, sizeof(auto_record_path), "replays/auto_%s.replay", stamp);
+                }
+            }
+        }
+        const char *path = record_path ? record_path : auto_record_path;
+        if (!replay_global_save(path)) {
+            SDL_Log("Failed to save replay to %s", path);
         }
         replay_global_stop();
     }

@@ -96,6 +96,26 @@ void keyboard_handle_event(GameState *game, const SDL_Event *event) {
                 game->ui.show_pause_menu = !game->ui.show_pause_menu;
             }
             break;
+        case SDLK_u:
+            if (!game->ui.show_main_menu &&
+                !game->ui.show_pause_menu &&
+                !is_terminal_phase(game->match.phase) &&
+                !game->ui.undo_used) {
+                if (game->ai.side != AI_SIDE_NONE) {
+                    bool player_is_white = game->ai.side == AI_SIDE_BLACK;
+                    if (game_undo_ex(game, true)) {
+                        while (game->match.white_to_move != player_is_white) {
+                            if (!game_undo_ex(game, false)) {
+                                break;
+                            }
+                        }
+                    }
+                } else {
+                    game_undo(game);
+                }
+                game->ui.undo_used = true;
+            }
+            break;
         default:
             break;
     }

@@ -1,6 +1,17 @@
 #include "game/logic.h"
 
+#include <stdlib.h>
 #include <string.h>
+
+#define GAME_SNAPSHOT_MAX 256
+
+typedef struct GameSnapshot {
+    BoardState board_state;
+    MatchState match;
+    LastMove last_move;
+    VariantState variant;
+    ChessRulesState chess;
+} GameSnapshot;
 
 static bool is_white_piece(char piece) {
     return piece >= 'A' && piece <= 'Z';
@@ -41,6 +52,89 @@ static void copy_state_minimal(GameState *dst, const GameState *src) {
     *dst = *src;
     // mutex pointer should not be copied; this is used only for simulation.
     dst->mutex = NULL;
+    // snapshots are not needed for simulations
+    dst->snapshots = NULL;
+    dst->snapshot_len = 0;
+    dst->snapshot_cap = 0;
+}
+
+static void snapshot_store(GameSnapshot *dst, const GameState *state) {
+    dst->board_state = state->board_state;
+    dst->match = state->match;
+    dst->last_move = state->last_move;
+    dst->variant = state->variant;
+    dst->chess = state->chess;
+}
+
+static void snapshot_push(GameState *state) {
+    if (!state || !state->snapshots || state->snapshot_cap <= 0) return;
+    if (state->snapshot_len >= state->snapshot_cap) {
+        memmove(state->snapshots, state->snapshots + 1, (size_t)(state->snapshot_cap - 1) * sizeof(GameSnapshot));
+        state->snapshot_len = state->snapshot_cap - 1;
+    }
+    snapshot_store(&state->snapshots[state->snapshot_len++], state);
+}
+
+bool game_undo_ex(GameState *state, bool update_anim) {
+    if (!state || !state->snapshots || state->snapshot_len <= 0) {
+        return false;
+    }
+    BoardState current_board = state->board_state;
+    LastMove anim_keep = state->last_move;
+    GameSnapshot snap = state->snapshots[--state->snapshot_len];
+    state->board_state = snap.board_state;
+    state->match = snap.match;
+    state->last_move = snap.last_move;
+    state->variant = snap.variant;
+    state->chess = snap.chess;
+    if (update_anim) {
+        BoardPos from = {-1, -1};
+        BoardPos to = {-1, -1};
+        char from_piece = '.';
+        for (int r = 0; r < 8; ++r) {
+            for (int f = 0; f < 8; ++f) {
+                char cur = current_board.squares[r][f].piece;
+                char prev = snap.board_state.squares[r][f].piece;
+                if (cur != '.' && prev == '.') {
+                    from = (BoardPos){f, r};
+                    from_piece = cur;
+                    break;
+                }
+            }
+            if (from.file >= 0) break;
+        }
+        if (from.file >= 0) {
+            bool from_white = is_white_piece(from_piece);
+            for (int r = 0; r < 8; ++r) {
+                for (int f = 0; f < 8; ++f) {
+                    char cur = current_board.squares[r][f].piece;
+                    char prev = snap.board_state.squares[r][f].piece;
+                    if (cur == '.' && prev != '.') {
+                        if ((from_white && is_white_piece(prev)) || (!from_white && is_black_piece(prev))) {
+                            to = (BoardPos){f, r};
+                            break;
+                        }
+                    }
+                }
+                if (to.file >= 0) break;
+            }
+        }
+        if (from.file >= 0 && to.file >= 0) {
+            state->last_move.start = from;
+            state->last_move.end = to;
+        }
+    } else {
+        state->last_move = anim_keep;
+    }
+    state->moves.selected.file = -1;
+    state->moves.selected.rank = -1;
+    state->moves.hover_pos = (BoardPos){-1, -1};
+    game_clear_move_flags(state);
+    return true;
+}
+
+bool game_undo(GameState *state) {
+    return game_undo_ex(state, true);
 }
 
 // Simple FNV-1a style hash of the full position (pieces, rights, side to move, en-passant)
@@ -884,6 +978,11 @@ bool game_init(GameState *state) {
     if (state->ai.side < AI_SIDE_NONE || state->ai.side > AI_SIDE_BLACK) {
         state->ai.side = AI_SIDE_NONE;
     }
+    if (!state->snapshots) {
+        state->snapshots = (GameSnapshot *)calloc(GAME_SNAPSHOT_MAX, sizeof(GameSnapshot));
+        state->snapshot_cap = state->snapshots ? GAME_SNAPSHOT_MAX : 0;
+        state->snapshot_len = 0;
+    }
 
     game_reset(state, state->match.mode[0] ? state->match.mode : "chess");
     state->ui.show_main_menu = true;
@@ -896,6 +995,12 @@ void game_destroy(GameState *state) {
     if (state && state->mutex) {
         SDL_DestroyMutex(state->mutex);
         state->mutex = NULL;
+    }
+    if (state && state->snapshots) {
+        free(state->snapshots);
+        state->snapshots = NULL;
+        state->snapshot_len = 0;
+        state->snapshot_cap = 0;
     }
 }
 
@@ -945,6 +1050,8 @@ static void game_handle_click_chess(GameState *state, int file, int rank) {
     }
 
     // Apply legal move with metadata (handles castles/en passant/promo).
+    snapshot_push(state);
+    state->ui.undo_used = false;
     state->last_move.start = (BoardPos){state->moves.selected.file, state->moves.selected.rank};
     state->last_move.end = (BoardPos){file, rank};
     apply_basic_move(state, state->moves.selected.file, state->moves.selected.rank, file, rank, hint, true);
@@ -1007,6 +1114,10 @@ static void game_handle_click_checkers(GameState *state, int file, int rank) {
         return;
     }
 
+    if (!state->variant.checkers_must_continue) {
+        snapshot_push(state);
+        state->ui.undo_used = false;
+    }
     apply_checkers_move(state, state->moves.selected.file, state->moves.selected.rank, file, rank, hint);
 }
 
@@ -1048,6 +1159,10 @@ bool game_apply_move(GameState *state, BoardPos from, BoardPos to, MoveHint hint
                 return false;
             }
         }
+        if (!state->variant.checkers_must_continue) {
+            snapshot_push(state);
+            state->ui.undo_used = false;
+        }
         apply_checkers_move(state, from.file, from.rank, to.file, to.rank, hint);
         return true;
     }
@@ -1061,6 +1176,8 @@ bool game_apply_move(GameState *state, BoardPos from, BoardPos to, MoveHint hint
         }
     }
 
+    snapshot_push(state);
+    state->ui.undo_used = false;
     state->last_move.start = from;
     state->last_move.end = to;
     apply_basic_move(state, from.file, from.rank, to.file, to.rank, hint, true);
@@ -1323,6 +1440,8 @@ void game_reset(GameState *state, const char *mode) {
     state->variant.promotion_choice_black = 'q';
     state->chess.rights.halfmove_clock = 0;
     state->chess.history.len = 0;
+    state->snapshot_len = 0;
+    state->ui.undo_used = false;
 
     game_clear_move_flags(state);
     reset_position_history(state);

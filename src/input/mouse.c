@@ -19,13 +19,15 @@ void mouse_handle_event(GameState *game, const RenderContext *render, const SDL_
             file = -1;
             rank = -1;
         }
+        bool changed = false;
         if (SDL_LockMutex(game->mutex) != 0) {
             SDL_Log("SDL_LockMutex failed: %s", SDL_GetError());
             return;
         }
+        changed = (game->moves.hover_pos.file != file || game->moves.hover_pos.rank != rank);
         game->moves.hover_pos = (BoardPos){file, rank};
         SDL_UnlockMutex(game->mutex);
-        if (replay_global_recording()) {
+        if (changed && replay_global_recording()) {
             replay_recorder_record_hover(replay_global_recorder(), SDL_GetTicks(), file, rank);
         }
         return;

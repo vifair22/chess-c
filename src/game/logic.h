@@ -83,6 +83,7 @@ typedef struct {
     bool show_main_menu;
     bool show_pause_menu;
     bool show_debug;
+    bool undo_used;
 } UiState;
 
 typedef struct {
@@ -93,6 +94,8 @@ typedef struct {
     double accum_time;
     int accum_frames;
 } PerfState;
+
+struct GameSnapshot;
 
 typedef enum {
     AI_SIDE_NONE = 0,
@@ -130,6 +133,9 @@ typedef struct {
     UiState ui;
     PerfState perf;
     AiSettings ai;
+    struct GameSnapshot *snapshots;
+    int snapshot_len;
+    int snapshot_cap;
 } GameState;
 
 bool game_init(GameState *state);
@@ -147,3 +153,7 @@ void game_recompute_phase(GameState *state);
 void game_reset_history(GameState *state);
 // Apply a legal move (used by AI/replay), returns false if invalid or unsupported.
 bool game_apply_move(GameState *state, BoardPos from, BoardPos to, MoveHint hint);
+// Undo the last completed turn (returns false if no snapshot available).
+bool game_undo(GameState *state);
+// Undo with optional animation update (false keeps last_move unchanged).
+bool game_undo_ex(GameState *state, bool update_anim);
