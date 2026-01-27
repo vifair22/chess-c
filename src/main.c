@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <direct.h>
+#include <errno.h>
 
 #include "ai/ai.h"
 #include "game/logic.h"
@@ -13,6 +15,7 @@
 
 static void replay_print_stats(const ReplayData *rep);
 static void print_usage(const char *exe, bool to_stderr);
+static void ensure_replay_dir(void);
 
 static void print_usage(const char *exe, bool to_stderr) {
     FILE *out = to_stderr ? stderr : stdout;
@@ -32,9 +35,17 @@ static void print_usage(const char *exe, bool to_stderr) {
         exe ? exe : "chess-c");
 }
 
+static void ensure_replay_dir(void) {
+    if (_mkdir("replays") != 0) {
+        if (errno != EEXIST) {
+            SDL_Log("Failed to create replays directory (errno=%d)", errno);
+        }
+    }
+}
+
 int main(int argc, char **argv) {
     const char *record_path = NULL;
-    char auto_record_path[256] = "replays/auto_latest.replay";
+    char auto_record_path[256] = "replays/auto_session.replay";
     const char *replay_path = NULL;
     bool headless = false;
     int headless_flag = 0; // 0 = unset, 1 = force headless, -1 = force windowed
@@ -46,6 +57,8 @@ int main(int argc, char **argv) {
     bool replay_evaluated = false;
     bool replay_hold_active = false;
     Uint32 replay_hold_until = 0;
+    int last_saved_turn = -1;
+    bool terminal_saved = false;
 
     bool saw_error = false;
     for (int i = 1; i < argc; ++i) {
@@ -109,9 +122,21 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    ensure_replay_dir();
+
     // Start recording for live games (always-on unless replaying).
     if (!replay_path) {
         replay_global_start(&game, SDL_GetTicks());
+        if (!record_path) {
+            time_t now = time(NULL);
+            struct tm local_tm;
+            if (localtime_s(&local_tm, &now) == 0) {
+                char stamp[64];
+                if (strftime(stamp, sizeof(stamp), "%Y%m%d_%H%M%S", &local_tm) > 0) {
+                    snprintf(auto_record_path, sizeof(auto_record_path), "replays/auto_%s.replay", stamp);
+                }
+            }
+        }
     }
 
     // Replay with headless/testing: apply, emit checksum/expectations, exit.
@@ -271,6 +296,40 @@ int main(int argc, char **argv) {
             }
         }
 
+        if (!replay_path && replay_global_recording()) {
+            bool should_save = false;
+            bool is_terminal = false;
+            int turn_number = 0;
+            if (SDL_LockMutex(game.mutex) == 0) {
+                turn_number = game.match.turn_number;
+                is_terminal = strncmp(game.match.phase, "checkmate", 9) == 0 ||
+                              strncmp(game.match.phase, "stalemate", 9) == 0 ||
+                              strncmp(game.match.phase, "win_", 4) == 0 ||
+                              strncmp(game.match.phase, "draw", 4) == 0;
+                SDL_UnlockMutex(game.mutex);
+            }
+            if (turn_number != last_saved_turn) {
+                should_save = true;
+                last_saved_turn = turn_number;
+            }
+            if (is_terminal && !terminal_saved) {
+                should_save = true;
+                terminal_saved = true;
+            }
+            if (should_save) {
+                ensure_replay_dir();
+                const char *path = record_path ? record_path : auto_record_path;
+                if (!replay_global_append(path)) {
+                    SDL_Log("Failed to autosave replay");
+                }
+                if (terminal_saved) {
+                    if (!replay_global_write_end(path)) {
+                        SDL_Log("Failed to finalize replay");
+                    }
+                }
+            }
+        }
+
         if (test_mode && replay_path && !live_replay_active && !headless && !replay_evaluated) {
             // Force intended final phase (e.g., resign/draw-agreed) before evaluating.
             if (live_replay.has_expect_phase) {
@@ -326,19 +385,15 @@ int main(int argc, char **argv) {
     }
 
     if (replay_global_recording()) {
-        if (!record_path) {
-            time_t now = time(NULL);
-            struct tm local_tm;
-            if (localtime_s(&local_tm, &now) == 0) {
-                char stamp[64];
-                if (strftime(stamp, sizeof(stamp), "%Y%m%d_%H%M%S", &local_tm) > 0) {
-                    snprintf(auto_record_path, sizeof(auto_record_path), "replays/auto_%s.replay", stamp);
-                }
-            }
-        }
         const char *path = record_path ? record_path : auto_record_path;
-        if (!replay_global_save(path)) {
-            SDL_Log("Failed to save replay to %s", path);
+        if (!terminal_saved) {
+            ensure_replay_dir();
+            if (!replay_global_append(path)) {
+                SDL_Log("Failed to save replay to %s", path);
+            }
+            if (!replay_global_write_end(path)) {
+                SDL_Log("Failed to finalize replay");
+            }
         }
         replay_global_stop();
     }

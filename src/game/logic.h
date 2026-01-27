@@ -157,3 +157,5 @@ bool game_apply_move(GameState *state, BoardPos from, BoardPos to, MoveHint hint
 bool game_undo(GameState *state);
 // Undo with optional animation update (false keeps last_move unchanged).
 bool game_undo_ex(GameState *state, bool update_anim);
+// Peek the next undo snapshot's side to move.
+bool game_peek_undo_white_to_move(const GameState *state, bool *out_white_to_move);

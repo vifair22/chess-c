@@ -305,39 +305,29 @@ static void draw_board(RenderContext *ctx, const GameState *state, int offset_x,
 }
 
 static void draw_board_labels(SDL_Renderer *renderer, int offset_x, int offset_y, int cell, int board_size, int window_width, int window_height) {
-    int text_scale = cell / 6;
+    int text_scale = cell / 20;
     if (text_scale < 2) {
         text_scale = 2;
     }
     int glyph_w = 5 * text_scale;
     int glyph_h = 7 * text_scale;
 
-    int digit_size = cell / 3;
-    if (digit_size < 10) {
-        digit_size = 10;
-    }
-    int digit_thickness = digit_size / 5;
-    if (digit_thickness < 2) {
-        digit_thickness = 2;
-    }
-    int digit_height = 2 * digit_size + 3 * digit_thickness;
-
-    int rank_x = offset_x - digit_size - digit_thickness - 4;
+    int rank_x = offset_x - glyph_w - 6;
     for (int rank = 0; rank < 8; ++rank) {
-        int value = 8 - rank;
-        int y = offset_y + rank * cell + (cell - digit_height) / 2;
-        if (rank_x >= 0) {
-            draw_number(renderer, rank_x, y, digit_size, kPalette.label_text, value);
+        char label[2] = {(char)('8' - rank), '\0'};
+        int y = offset_y + rank * cell + (cell - glyph_h) / 2;
+        if (rank_x >= 0 && y >= 0 && y + glyph_h <= window_height) {
+            draw_text(renderer, rank_x, y, text_scale, kPalette.label_text, label);
         }
     }
 
-    int file_y = offset_y + board_size + text_scale;
+    int file_y = offset_y + board_size + 4;
     for (int file = 0; file < 8; ++file) {
         char label[2] = {(char)('a' + file), '\0'};
         int center_x = offset_x + file * cell + cell / 2;
         int x = center_x - glyph_w / 2;
-        if (file_y + glyph_h <= window_height) {
-        draw_text(renderer, x, file_y, text_scale, kPalette.label_text, label);
+        if (x >= 0 && x + glyph_w <= window_width && file_y + glyph_h <= window_height) {
+            draw_text(renderer, x, file_y, text_scale, kPalette.label_text, label);
         }
     }
 }
@@ -387,13 +377,26 @@ static void draw_debug_overlay(SDL_Renderer *renderer, const GameState *state, i
 
 BoardGeometry render_compute_board_geometry(const RenderContext *ctx) {
     BoardGeometry geo = {0};
-    int label_margin = 64;
-    int available_width = ctx->surface.window_width - 2 * label_margin;
-    int available_height = ctx->surface.window_height - 2 * label_margin;
-    int base_size = (available_width > 0 && available_height > 0) ?
-        (available_width < available_height ? available_width : available_height) :
-        (ctx->surface.window_width < ctx->surface.window_height ? ctx->surface.window_width : ctx->surface.window_height);
-    int cell = base_size / 8;
+    int label_margin = 32;
+    int cell = 0;
+    for (int pass = 0; pass < 2; ++pass) {
+        int available_width = ctx->surface.window_width - 2 * label_margin;
+        int available_height = ctx->surface.window_height - 2 * label_margin;
+        int base_size = (available_width > 0 && available_height > 0) ?
+            (available_width < available_height ? available_width : available_height) :
+            (ctx->surface.window_width < ctx->surface.window_height ? ctx->surface.window_width : ctx->surface.window_height);
+        cell = base_size / 8;
+        if (cell < 1) cell = 1;
+        int text_scale = cell / 20;
+        if (text_scale < 2) text_scale = 2;
+        int glyph_h = 7 * text_scale;
+        int needed = glyph_h + 10;
+        if (needed > label_margin) {
+            label_margin = needed;
+        } else {
+            break;
+        }
+    }
     if (cell < 1) {
         cell = 1;
     }
@@ -486,5 +489,3 @@ void render_shutdown(RenderContext *ctx) {
     }
     SDL_Quit();
 }
-
-

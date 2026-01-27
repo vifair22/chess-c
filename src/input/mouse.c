@@ -27,9 +27,7 @@ void mouse_handle_event(GameState *game, const RenderContext *render, const SDL_
         changed = (game->moves.hover_pos.file != file || game->moves.hover_pos.rank != rank);
         game->moves.hover_pos = (BoardPos){file, rank};
         SDL_UnlockMutex(game->mutex);
-        if (changed && replay_global_recording()) {
-            replay_recorder_record_hover(replay_global_recorder(), SDL_GetTicks(), file, rank);
-        }
+        (void)changed;
         return;
     }
 
@@ -48,8 +46,14 @@ void mouse_handle_event(GameState *game, const RenderContext *render, const SDL_
         }
         bool handled = false;
         if (game->ui.show_main_menu) {
+            bool request_quit = false;
             handled = ui_handle_main_menu_click(game, event->button.x, event->button.y,
-                render->surface.window_width, render->surface.window_height);
+                render->surface.window_width, render->surface.window_height, &request_quit);
+            if (request_quit) {
+                SDL_Event quit_event;
+                quit_event.type = SDL_QUIT;
+                SDL_PushEvent(&quit_event);
+            }
         } else if (game->ui.show_pause_menu) {
             handled = ui_handle_pause_menu_click(game, event->button.x, event->button.y,
                 render->surface.window_width, render->surface.window_height);
@@ -73,9 +77,30 @@ void mouse_handle_event(GameState *game, const RenderContext *render, const SDL_
         return;
     }
 
+    LastMove before = game->last_move;
+    BoardState before_board = game->board_state;
     game_handle_click(game, file, rank);
+    LastMove after = game->last_move;
+    bool moved = (before.start.file != after.start.file) || (before.start.rank != after.start.rank) ||
+                 (before.end.file != after.end.file) || (before.end.rank != after.end.rank);
     if (replay_global_recording()) {
-        replay_recorder_record_click(replay_global_recorder(), SDL_GetTicks(), file, rank);
+        if (moved) {
+            char promo = '\0';
+            char moved_piece = game->board_state.squares[after.end.rank][after.end.file].piece;
+            char from_piece = '.';
+            if (after.start.file >= 0 && after.start.file < 8 && after.start.rank >= 0 && after.start.rank < 8) {
+                from_piece = before_board.squares[after.start.rank][after.start.file].piece;
+            }
+            if (moved_piece != '.' &&
+                ((from_piece == 'P' || from_piece == 'p') ||
+                 (from_piece == 'M' || from_piece == 'm'))) {
+                promo = moved_piece;
+            }
+            replay_recorder_record_move(replay_global_recorder(), SDL_GetTicks(),
+                after.start.file, after.start.rank, after.end.file, after.end.rank, promo);
+        } else if (file >= 0 && file < 8 && rank >= 0 && rank < 8) {
+            replay_recorder_record_click(replay_global_recorder(), SDL_GetTicks(), file, rank);
+        }
     }
     SDL_UnlockMutex(game->mutex);
 }

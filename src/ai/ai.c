@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#include "save/replay.h"
 #define AI_MAX_MOVES 256
 #define AI_INF 1000000
 #define AI_MATE 100000
@@ -296,5 +297,16 @@ void ai_make_move(GameState *state) {
         }
     }
 
-    game_apply_move(state, moves[best_index].from, moves[best_index].to, moves[best_index].hint);
+    if (game_apply_move(state, moves[best_index].from, moves[best_index].to, moves[best_index].hint)) {
+        if (replay_global_recording()) {
+            char promo = '\0';
+            if ((moves[best_index].hint.flags & MOVE_PROMOTION) && moves[best_index].hint.promotion) {
+                promo = moves[best_index].hint.promotion;
+            }
+            replay_recorder_record_move(replay_global_recorder(), SDL_GetTicks(),
+                moves[best_index].from.file, moves[best_index].from.rank,
+                moves[best_index].to.file, moves[best_index].to.rank,
+                promo);
+        }
+    }
 }

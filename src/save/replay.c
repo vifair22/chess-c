@@ -47,6 +47,9 @@ void replay_recorder_begin(ReplayRecorder *rec, const GameState *state, uint32_t
     snapshot_start_state(&rec->start, state);
     rec->recording = true;
     rec->start_ticks = now_ticks;
+    rec->saved_events = 0;
+    rec->header_written = false;
+    rec->end_written = false;
 }
 
 // Global recorder
@@ -72,6 +75,14 @@ void replay_global_stop(void) {
     replay_recorder_end(&g_recorder);
 }
 
+bool replay_global_append(const char *path) {
+    return replay_recorder_append_events(&g_recorder, path);
+}
+
+bool replay_global_write_end(const char *path) {
+    return replay_recorder_write_end(&g_recorder, path);
+}
+
 static void record_event(ReplayRecorder *rec, uint32_t now_ticks, ReplayEventType type, int file, int rank) {
     if (!rec || !rec->recording) return;
     ensure_capacity(rec);
@@ -90,6 +101,22 @@ void replay_recorder_record_hover(ReplayRecorder *rec, uint32_t now_ticks, int f
 
 void replay_recorder_record_click(ReplayRecorder *rec, uint32_t now_ticks, int file, int rank) {
     record_event(rec, now_ticks, REPLAY_EVENT_CLICK, file, rank);
+}
+
+void replay_recorder_record_move(ReplayRecorder *rec, uint32_t now_ticks, int from_file, int from_rank, int to_file, int to_rank, char promotion) {
+    if (!rec || !rec->recording) return;
+    ensure_capacity(rec);
+    if (rec->event_count >= rec->event_capacity) return;
+    ReplayEvent *ev = &rec->events[rec->event_count++];
+    memset(ev, 0, sizeof(*ev));
+    ev->t_ms = now_ticks - rec->start_ticks;
+    ev->type = REPLAY_EVENT_MOVE;
+    ev->file = (int8_t)from_file;
+    ev->rank = (int8_t)from_rank;
+    ev->aux_file = (int8_t)to_file;
+    ev->aux_rank = (int8_t)to_rank;
+    ev->text[0] = promotion ? promotion : '-';
+    ev->text[1] = '\0';
 }
 
 static void castle_string(const ReplayStartState *s, char *buf, size_t len) {
@@ -125,8 +152,13 @@ bool replay_recorder_save(const ReplayRecorder *rec, const char *path) {
     fprintf(f, "events\n");
     for (size_t i = 0; i < rec->event_count; ++i) {
         const ReplayEvent *ev = &rec->events[i];
-        const char *type = ev->type == REPLAY_EVENT_HOVER ? "hover" : "click";
-        fprintf(f, "%u %s %d %d\n", ev->t_ms, type, ev->file, ev->rank);
+        if (ev->type == REPLAY_EVENT_MOVE) {
+            char promo = ev->text[0] ? ev->text[0] : '-';
+            fprintf(f, "%u move %d %d %d %d %c\n", ev->t_ms, ev->file, ev->rank, ev->aux_file, ev->aux_rank, promo);
+        } else {
+            const char *type = ev->type == REPLAY_EVENT_HOVER ? "hover" : "click";
+            fprintf(f, "%u %s %d %d\n", ev->t_ms, type, ev->file, ev->rank);
+        }
     }
     fprintf(f, "end\n");
     fclose(f);
@@ -137,6 +169,75 @@ void replay_recorder_end(ReplayRecorder *rec) {
     if (!rec) return;
     free(rec->events);
     memset(rec, 0, sizeof(*rec));
+}
+
+bool replay_recorder_write_header(ReplayRecorder *rec, const char *path) {
+    if (!rec || !rec->recording || !path) return false;
+    FILE *f = fopen(path, "w");
+    if (!f) return false;
+    fprintf(f, "%s\n", REPLAY_VERSION);
+    fprintf(f, "mode %s\n", rec->start.game_mode);
+    fprintf(f, "phase %s\n", rec->start.game_phase);
+    fprintf(f, "white_to_move %d\n", rec->start.white_to_move ? 1 : 0);
+    fprintf(f, "turn %d\n", rec->start.turn_number);
+    fprintf(f, "halfmove %d\n", rec->start.halfmove_clock);
+    char castle[8];
+    castle_string(&rec->start, castle, sizeof(castle));
+    fprintf(f, "castle %s\n", castle);
+    fprintf(f, "en_passant %d %d\n", rec->start.en_passant_target.file, rec->start.en_passant_target.rank);
+    if (rec->start.promote_white) fprintf(f, "promote_white %c\n", rec->start.promote_white);
+    if (rec->start.promote_black) fprintf(f, "promote_black %c\n", rec->start.promote_black);
+    fprintf(f, "board\n");
+    for (int r = 0; r < 8; ++r) {
+        fprintf(f, "%s\n", rec->start.board[r]);
+    }
+    fprintf(f, "events\n");
+    fclose(f);
+    rec->header_written = true;
+    return true;
+}
+
+bool replay_recorder_append_events(ReplayRecorder *rec, const char *path) {
+    if (!rec || !rec->recording || !path) return false;
+    if (!rec->header_written) {
+        if (!replay_recorder_write_header(rec, path)) {
+            return false;
+        }
+    }
+    if (rec->saved_events >= rec->event_count) {
+        return true;
+    }
+    FILE *f = fopen(path, "a");
+    if (!f) return false;
+    for (size_t i = rec->saved_events; i < rec->event_count; ++i) {
+        const ReplayEvent *ev = &rec->events[i];
+        if (ev->type == REPLAY_EVENT_MOVE) {
+            char promo = ev->text[0] ? ev->text[0] : '-';
+            fprintf(f, "%u move %d %d %d %d %c\n", ev->t_ms, ev->file, ev->rank, ev->aux_file, ev->aux_rank, promo);
+        } else {
+            const char *type = ev->type == REPLAY_EVENT_HOVER ? "hover" : "click";
+            fprintf(f, "%u %s %d %d\n", ev->t_ms, type, ev->file, ev->rank);
+        }
+    }
+    rec->saved_events = rec->event_count;
+    fclose(f);
+    return true;
+}
+
+bool replay_recorder_write_end(ReplayRecorder *rec, const char *path) {
+    if (!rec || !rec->recording || !path) return false;
+    if (rec->end_written) return true;
+    if (!rec->header_written) {
+        if (!replay_recorder_write_header(rec, path)) {
+            return false;
+        }
+    }
+    FILE *f = fopen(path, "a");
+    if (!f) return false;
+    fprintf(f, "end\n");
+    fclose(f);
+    rec->end_written = true;
+    return true;
 }
 
 static bool parse_line(char *line, char **out) {
@@ -278,6 +379,20 @@ bool replay_load(const char *path, ReplayData *out) {
             if (!fstr || !rstr) continue;
             parsed.file = (int8_t)atoi(fstr);
             parsed.rank = (int8_t)atoi(rstr);
+        } else if (strcmp(type, "move") == 0) {
+            parsed.type = REPLAY_EVENT_MOVE;
+            char *fstr = strtok(NULL, " ");
+            char *rstr = strtok(NULL, " ");
+            char *tfstr = strtok(NULL, " ");
+            char *trstr = strtok(NULL, " ");
+            char *promo = strtok(NULL, " ");
+            if (!fstr || !rstr || !tfstr || !trstr) continue;
+            parsed.file = (int8_t)atoi(fstr);
+            parsed.rank = (int8_t)atoi(rstr);
+            parsed.aux_file = (int8_t)atoi(tfstr);
+            parsed.aux_rank = (int8_t)atoi(trstr);
+            parsed.text[0] = (promo && promo[0]) ? promo[0] : '-';
+            parsed.text[1] = '\0';
         } else if (strcmp(type, "click") == 0) {
             parsed.type = REPLAY_EVENT_CLICK;
             char *fstr = strtok(NULL, " ");
@@ -434,6 +549,14 @@ bool replay_apply_event(const ReplayEvent *ev, GameState *state, bool apply_hove
         case REPLAY_EVENT_CLICK:
             game_handle_click(state, ev->file, ev->rank);
             return true;
+        case REPLAY_EVENT_MOVE: {
+            MoveHint hint = {0};
+            if (ev->text[0] && ev->text[0] != '-') {
+                hint.flags |= MOVE_PROMOTION;
+                hint.promotion = ev->text[0];
+            }
+            return game_apply_move(state, (BoardPos){ev->file, ev->rank}, (BoardPos){ev->aux_file, ev->aux_rank}, hint);
+        }
         case REPLAY_EVENT_EXPECT_ILLEGAL: {
             uint32_t before = replay_checksum(state);
             int before_turn = state->match.turn_number;

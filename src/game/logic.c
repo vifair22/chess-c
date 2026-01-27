@@ -137,6 +137,14 @@ bool game_undo(GameState *state) {
     return game_undo_ex(state, true);
 }
 
+bool game_peek_undo_white_to_move(const GameState *state, bool *out_white_to_move) {
+    if (!state || !out_white_to_move || !state->snapshots || state->snapshot_len <= 0) {
+        return false;
+    }
+    *out_white_to_move = state->snapshots[state->snapshot_len - 1].match.white_to_move;
+    return true;
+}
+
 // Simple FNV-1a style hash of the full position (pieces, rights, side to move, en-passant)
 static uint64_t position_hash(const GameState *state) {
     const uint64_t fnv_offset = 0xcbf29ce484222325ULL;
@@ -1150,6 +1158,7 @@ bool game_apply_move(GameState *state, BoardPos from, BoardPos to, MoveHint hint
     if (!game_allows_moves(state)) {
         return false;
     }
+    char promo_override = ((hint.flags & MOVE_PROMOTION) && hint.promotion) ? hint.promotion : '\0';
     if (game_mode_is(state, "checkers")) {
         if (!(hint.flags & MOVE_LEGAL)) {
             game_eval_legal_moves(state, from.file, from.rank);
@@ -1158,6 +1167,10 @@ bool game_apply_move(GameState *state, BoardPos from, BoardPos to, MoveHint hint
                 game_clear_move_flags(state);
                 return false;
             }
+        }
+        if (promo_override) {
+            hint.flags |= MOVE_PROMOTION;
+            hint.promotion = promo_override;
         }
         if (!state->variant.checkers_must_continue) {
             snapshot_push(state);
@@ -1174,6 +1187,10 @@ bool game_apply_move(GameState *state, BoardPos from, BoardPos to, MoveHint hint
             game_clear_move_flags(state);
             return false;
         }
+    }
+    if (promo_override) {
+        hint.flags |= MOVE_PROMOTION;
+        hint.promotion = promo_override;
     }
 
     snapshot_push(state);

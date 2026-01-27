@@ -42,6 +42,7 @@ typedef struct {
     SDL_Rect ai_side;
     SDL_Rect depth[4];
     SDL_Rect start;
+    SDL_Rect quit;
 } MenuButtons;
 
 static int measure_text_width(const char *text, int scale) {
@@ -110,14 +111,20 @@ static MenuButtons menu_buttons(const MenuLayout *layout) {
     y += btn_h + gap;
 
     buttons.start = (SDL_Rect){x_left, y, full_w, btn_h};
+    y += btn_h + gap;
+    buttons.quit = (SDL_Rect){x_left, y, full_w, btn_h};
     return buttons;
 }
 
-static MenuLayout draw_panel_base(RenderContext *ctx, const char *title) {
+static MenuLayout draw_panel_base(RenderContext *ctx, const char *title, bool opaque_backdrop) {
     MenuLayout layout = menu_layout(ctx->surface.window_width, ctx->surface.window_height);
     SDL_Rect panel = layout.panel;
 
-    SDL_SetRenderDrawColor(ctx->surface.renderer, kPalette.panel_backdrop.r, kPalette.panel_backdrop.g, kPalette.panel_backdrop.b, kPalette.panel_backdrop.a);
+    SDL_Color backdrop = kPalette.panel_backdrop;
+    if (opaque_backdrop) {
+        backdrop.a = 255;
+    }
+    SDL_SetRenderDrawColor(ctx->surface.renderer, backdrop.r, backdrop.g, backdrop.b, backdrop.a);
     SDL_RenderFillRect(ctx->surface.renderer, &(SDL_Rect){0, 0, ctx->surface.window_width, ctx->surface.window_height});
 
     SDL_SetRenderDrawColor(ctx->surface.renderer, kPalette.panel_fill.r, kPalette.panel_fill.g, kPalette.panel_fill.b, kPalette.panel_fill.a);
@@ -132,7 +139,7 @@ static MenuLayout draw_panel_base(RenderContext *ctx, const char *title) {
 }
 
 static void draw_panel(RenderContext *ctx, const char *title, const char *body) {
-    MenuLayout layout = draw_panel_base(ctx, title);
+    MenuLayout layout = draw_panel_base(ctx, title, false);
     draw_text(ctx->surface.renderer, layout.body_x, layout.body_y, layout.scale, kPalette.panel_text, body);
 }
 
@@ -169,7 +176,7 @@ static const char *ai_side_label(AiSide side) {
 }
 
 void ui_draw_main_menu(RenderContext *ctx, const GameState *state) {
-    MenuLayout layout = draw_panel_base(ctx, "MAIN MENU");
+    MenuLayout layout = draw_panel_base(ctx, "MAIN MENU", true);
     MenuButtons buttons = menu_buttons(&layout);
 
     int x = layout.body_x;
@@ -193,14 +200,15 @@ void ui_draw_main_menu(RenderContext *ctx, const GameState *state) {
     }
 
     draw_button(ctx, buttons.start, "START", false, layout.scale);
+    draw_button(ctx, buttons.quit, "QUIT", false, layout.scale);
 
-    int hint_y = buttons.start.y + buttons.start.h + layout.line_height;
+    int hint_y = buttons.quit.y + buttons.quit.h + layout.line_height;
     draw_text(ctx->surface.renderer, x, hint_y, layout.scale, kPalette.panel_text, "ENTER/SPACE TO START  ESC/P TO PAUSE");
 }
 
 void ui_draw_pause_menu(RenderContext *ctx, const GameState *state) {
     (void)state;
-    MenuLayout layout = draw_panel_base(ctx, "PAUSE");
+    MenuLayout layout = draw_panel_base(ctx, "PAUSE", false);
     SDL_Rect buttons[2];
     int y = layout.body_y;
     draw_panel_text(ctx, &layout, "GAME PAUSED", y);
@@ -237,7 +245,7 @@ void ui_draw_win_screen(RenderContext *ctx, const GameState *state) {
         }
     }
 
-    MenuLayout layout = draw_panel_base(ctx, title);
+    MenuLayout layout = draw_panel_base(ctx, title, false);
     SDL_Rect buttons[1];
     int y = layout.body_y;
     snprintf(body, sizeof(body), "%s\nRESULT: %s", state->match.mode, result);
@@ -247,8 +255,11 @@ void ui_draw_win_screen(RenderContext *ctx, const GameState *state) {
     draw_button(ctx, buttons[0], "MAIN MENU", false, layout.scale);
 }
 
-bool ui_handle_main_menu_click(GameState *state, int mouse_x, int mouse_y, int window_w, int window_h) {
+bool ui_handle_main_menu_click(GameState *state, int mouse_x, int mouse_y, int window_w, int window_h, bool *out_request_quit) {
     if (!state) return false;
+    if (out_request_quit) {
+        *out_request_quit = false;
+    }
     MenuLayout layout = menu_layout(window_w, window_h);
     if (mouse_x < layout.panel.x || mouse_x > layout.panel.x + layout.panel.w ||
         mouse_y < layout.panel.y || mouse_y > layout.panel.y + layout.panel.h) {
@@ -282,6 +293,12 @@ bool ui_handle_main_menu_click(GameState *state, int mouse_x, int mouse_y, int w
     }
     if (point_in_rect(mouse_x, mouse_y, buttons.start)) {
         state->ui.show_main_menu = false;
+        return true;
+    }
+    if (point_in_rect(mouse_x, mouse_y, buttons.quit)) {
+        if (out_request_quit) {
+            *out_request_quit = true;
+        }
         return true;
     }
     return false;

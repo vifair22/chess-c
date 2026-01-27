@@ -43,6 +43,7 @@ Events begin after the line `events` and end at `end`. Each event line format:
 Supported `type` values and arguments:
 - `hover <file> <rank>`: set hover (if enabled by caller).
 - `click <file> <rank>`: simulate a click on a square.
+- `move <from_file> <from_rank> <to_file> <to_rank> <promo>`: apply a move directly. `promo` is a piece char or `-`.
 - `expect_illegal_move <file> <rank>`: click that must NOT change state (checksum/turn unchanged).
 - `assert_turn <N>`: require `turn_number == N`.
 - `assert_phase <PHASE>`: require `game_phase` string match.

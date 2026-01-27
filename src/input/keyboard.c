@@ -103,11 +103,14 @@ void keyboard_handle_event(GameState *game, const SDL_Event *event) {
                 !game->ui.undo_used) {
                 if (game->ai.side != AI_SIDE_NONE) {
                     bool player_is_white = game->ai.side == AI_SIDE_BLACK;
-                    if (game_undo_ex(game, true)) {
-                        while (game->match.white_to_move != player_is_white) {
-                            if (!game_undo_ex(game, false)) {
-                                break;
-                            }
+                    bool next_turn_white = player_is_white;
+                    while (game_peek_undo_white_to_move(game, &next_turn_white)) {
+                        bool update_anim = next_turn_white == player_is_white;
+                        if (!game_undo_ex(game, update_anim)) {
+                            break;
+                        }
+                        if (update_anim) {
+                            break;
                         }
                     }
                 } else {
