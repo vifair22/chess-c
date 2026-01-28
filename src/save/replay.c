@@ -582,7 +582,7 @@ bool replay_apply_event(const ReplayEvent *ev, GameState *state, bool apply_hove
                     hint.promotion = ev->text[0];
                 }
             }
-            return game_apply_move(state, (BoardPos){ev->file, ev->rank}, (BoardPos){ev->aux_file, ev->aux_rank}, hint);
+            return game_apply_move_ai(state, (BoardPos){ev->file, ev->rank}, (BoardPos){ev->aux_file, ev->aux_rank}, hint);
         }
         case REPLAY_EVENT_EXPECT_ILLEGAL: {
             uint32_t before = replay_checksum(state);
@@ -744,4 +744,3 @@ uint32_t replay_checksum(const GameState *state) {
     #undef HSTEP
     return h;
 }
-

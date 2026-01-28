@@ -5,9 +5,11 @@ Lightweight SDL2 chess + checkers game. Core gameplay, rendering, replay recordi
 ## Features
 - Chess and checkers rule sets (toggle from the main menu).
 - Legal move generation (including castling, en passant, promotion, check/checkmate).
+- AI with depth search plus a timed 10-second mode ("10S" in the new game menu).
+- Captures panel and turn list (SAN) UI with scroll.
 - Replay capture and deterministic playback (see `REPLAY_SCHEMA.md`).
 - Headless/test mode for replay verification.
-- Debug overlay (FPS/phase/turn) toggle.
+- Debug overlay with AI status (stage, nodes, depth, timing).
 
 ## Build
 
@@ -62,29 +64,30 @@ macOS/Linux:
 - Q or R (pause menu): resign.
 - Q / R / B / N (in game): set preferred promotion piece.
 - F3: toggle debug overlay.
+- Mouse wheel: scroll turn list (SAN) when playing.
 
 ## Replay capture & playback
 
 Record a session (saved on exit):
 ```bash
-chess-c --record replays/my_game.rep
+chess-c --record replays/my_game.replay
 ```
 
 Replay interactively:
 ```bash
-chess-c --replay replays/my_game.rep
+chess-c --replay replays/my_game.replay
 ```
 
 Replay in headless/test mode (prints checksums and exits non-zero on failure):
 ```bash
-chess-c --replay replays/my_game.rep --headless --test
+chess-c --replay replays/my_game.replay --headless --test
 ```
 
 The replay file format (including assertions for tests) is documented in `REPLAY_SCHEMA.md`.
 
 ## Tests
 
-The CMake test runner (`test/chess-c-tests`) replays all `.rep` files in `replays/` and validates checksums/expectations.
+The CMake test runner (`test/chess-c-tests`) replays all `.replay` files in `replays/` and validates checksums/expectations.
 
 ```powershell
 .\build\Release\chess-c-tests.exe --dir replays --exe .\build\Release\chess-c.exe
@@ -92,6 +95,7 @@ The CMake test runner (`test/chess-c-tests`) replays all `.rep` files in `replay
 
 ## Code layout
 - `src/game/logic.*`: board state, rules, legal move generation, and game phases.
+- `src/ai/*`: AI search, worker thread, and timing.
 - `src/renderer/*`: SDL rendering, UI panels, piece sprites, debug overlay.
 - `src/input/*`: keyboard + mouse input handling.
 - `src/save/replay.*`: replay recording/loading, checksums, assertions.
@@ -105,6 +109,7 @@ The CMake test runner (`test/chess-c-tests`) replays all `.rep` files in `replay
 - `BoardState`: `squares[8][8]` grid of `SquareState`.
 - `MoveHint`: `flags` (castle/en passant/promo/capture/etc.) + `promotion`.
 - `GameTime`: `total_seconds` elapsed (accumulated only while not paused).
+- `MoveRecord`: last-move history entry with SAN.
 
 Layout:
 ```
@@ -125,25 +130,37 @@ MoveHint
 
 GameTime
 └─ double total_seconds     // accumulated play time
+
+MoveRecord
+├─ BoardPos from
+├─ BoardPos to
+├─ char piece
+├─ char promotion
+├─ bool white_move
+└─ char san[16]
 ```
 
 ### GameState (expanded)
 - `mutex`: guards cross-thread access (render thread snapshots state).
 - `board_state`: current board pieces + per-square flags.
-- `match`: active mode/phase/turn/time (`mode`, `phase`, `white_to_move`, `turn_number`, `game_time`).
+- `match`: mode/phase/turn/time (`mode`, `phase`, `white_to_move`, `turn_number`, `game_time`).
 - `moves`: selection/hover state + `legal_moves[8][8]` for the current selection.
 - `last_move`: last move endpoints (for animation).
 - `variant`: checkers chain + promotion preferences.
 - `chess`: castling/en-passant/halfmove + repetition history.
-- `ui`: menu/debug toggles.
+- `captures`: per-side capture lists + lengths.
+- `move_history`: SAN history list (for UI).
+- `ui`: menu state, load/save state, scroll state.
 - `perf`: last frame timing + smoothed averages.
+- `ai`: side/depth settings + last compute time + timing markers.
+- `snapshots`: undo ring buffer.
+- `autosave`: autosave bookkeeping.
 
 Layout:
 ```
 GameState
 ├─ SDL_mutex *mutex
 ├─ BoardState board_state
-│   └─ SquareState squares[8][8]
 ├─ MatchState match
 │   ├─ char mode[16]
 │   ├─ char phase[24]
@@ -153,21 +170,11 @@ GameState
 │       └─ double total_seconds
 ├─ MoveContext moves
 │   ├─ Selection selected
-│   │   ├─ int file
-│   │   └─ int rank
 │   ├─ BoardPos hover_pos
-│   │   ├─ int file
-│   │   └─ int rank
 │   └─ MoveHint legal_moves[8][8]
-│       ├─ uint8_t flags
-│       └─ char promotion
 ├─ LastMove last_move
 │   ├─ BoardPos start
-│   │   ├─ int file
-│   │   └─ int rank
 │   └─ BoardPos end
-│       ├─ int file
-│       └─ int rank
 ├─ VariantState variant
 │   ├─ bool checkers_must_continue
 │   ├─ char promotion_choice_white
@@ -179,29 +186,70 @@ GameState
 │   │   ├─ bool black_can_castle_kingside
 │   │   ├─ bool black_can_castle_queenside
 │   │   ├─ BoardPos en_passant_target
-│   │   │   ├─ int file
-│   │   │   └─ int rank
 │   │   └─ int halfmove_clock
 │   └─ PositionHistory history
 │       ├─ uint64_t hashes[512]
 │       └─ int len
+├─ char white_captures[32]
+├─ int white_captures_len
+├─ char black_captures[32]
+├─ int black_captures_len
+├─ MoveRecord move_history[512]
+├─ int move_history_len
 ├─ UiState ui
 │   ├─ bool show_main_menu
 │   ├─ bool show_pause_menu
-│   └─ bool show_debug
-└─ PerfState perf
-    ├─ double last_frame_seconds
-    ├─ double last_fps
-    ├─ double smoothed_frame_ms
-    ├─ double smoothed_fps
-    ├─ double accum_time
-    └─ int accum_frames
+│   ├─ bool show_debug
+│   ├─ bool undo_used
+│   ├─ bool show_save_modal
+│   ├─ bool show_load_menu
+│   ├─ bool show_load_confirm
+│   ├─ bool show_new_menu
+│   ├─ bool load_needs_refresh
+│   ├─ int main_menu_index
+│   ├─ int new_menu_index
+│   ├─ int pause_menu_index
+│   ├─ int save_menu_index
+│   ├─ int load_menu_focus
+│   ├─ int load_confirm_index
+│   ├─ bool menu_keyboard_active
+│   ├─ bool menu_mouse_active
+│   ├─ char save_name[64]
+│   ├─ int save_len
+│   ├─ char load_names[32][64]
+│   ├─ time_t load_times[32]
+│   ├─ int load_count
+│   ├─ int load_scroll
+│   ├─ int load_selected
+│   ├─ bool load_scroll_dragging
+│   ├─ int load_scroll_drag_offset
+│   ├─ int turn_log_scroll
+│   └─ int turn_log_max_scroll
+├─ PerfState perf
+│   ├─ double last_frame_seconds
+│   ├─ double last_fps
+│   ├─ double smoothed_frame_ms
+│   ├─ double smoothed_fps
+│   ├─ double accum_time
+│   └─ int accum_frames
+├─ AiSettings ai
+│   ├─ AiSide side
+│   └─ int depth
+├─ double ai_last_move_ms
+├─ bool ai_timing_active
+├─ uint64_t ai_timing_start
+├─ double ai_time_freq
+├─ GameSnapshot *snapshots
+├─ int snapshot_len
+├─ int snapshot_cap
+├─ int autosave_last_turn
+└─ bool autosave_terminal_saved
 ```
 
 ### Render structs
 - `RenderContext`: SDL window/renderer, cached piece textures, animation state,
   last turn number, and per-square overlay fade buffers.
-- `BoardGeometry`: board pixel origin + `cell` size + total `board_size`.
+- `BoardGeometry`: board pixel origin + `cell` size + total `board_size`, plus right-side margins.
 - `RenderPalette`: named UI colors for board, overlays, pieces, text, and panels.
 - `PieceSprite`: embedded sprite metadata + RGBA pixels.
 - `Glyph5x7`: 5x7 bitmap font glyph data.
@@ -239,7 +287,9 @@ BoardGeometry
 ├─ int offset_x
 ├─ int offset_y
 ├─ int cell
-└─ int board_size
+├─ int board_size
+├─ int capture_margin
+└─ int turn_margin
 
 RenderPalette
 ├─ SDL_Color background
@@ -275,8 +325,8 @@ Glyph5x7
 ### Replay structs
 - `ReplayEvent`: timestamped input/assert event (click/hover/asserts) plus optional lists
   for `assert_legal` (allowed/forbidden squares).
-- `ReplayStartState`: initial board setup, phase, castling/en-passant rights, and default
-  promotion pieces.
+- `ReplayStartState`: initial board setup, phase, castling/en-passant rights, AI settings,
+  and default promotion pieces.
 - `ReplayRecorder`: in-memory capture buffer and starting snapshot for recording.
 - `ReplayData`: loaded replay + optional end-state expectations (phase/turn/checksum/board).
 
@@ -304,6 +354,8 @@ ReplayStartState
 ├─ bool white_to_move
 ├─ int turn_number
 ├─ int halfmove_clock
+├─ int ai_side
+├─ int ai_depth
 ├─ bool white_can_castle_kingside
 ├─ bool white_can_castle_queenside
 ├─ bool black_can_castle_kingside
@@ -319,7 +371,10 @@ ReplayRecorder
 ├─ size_t event_count
 ├─ size_t event_capacity
 ├─ uint32_t start_ticks
-└─ bool recording
+├─ bool recording
+├─ size_t saved_events
+├─ bool header_written
+└─ bool end_written
 
 ReplayData
 ├─ ReplayStartState start
