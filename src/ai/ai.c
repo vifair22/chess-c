@@ -32,9 +32,19 @@ typedef struct {
     AiJob job;
     AiResult result;
     double last_compute_ms;
+    AiWorkerStage stage;
 } AiWorker;
 
 static AiWorker g_ai_worker;
+
+static void ai_worker_set_stage(AiWorkerStage stage) {
+    if (!g_ai_worker.mutex) return;
+    SDL_LockMutex(g_ai_worker.mutex);
+    if (g_ai_worker.running) {
+        g_ai_worker.stage = stage;
+    }
+    SDL_UnlockMutex(g_ai_worker.mutex);
+}
 
 static void ai_clone_state(GameState *dst, const GameState *src) {
     if (!dst || !src) return;
@@ -239,15 +249,17 @@ static int negamax(GameState *state, int depth, int alpha, int beta) {
     return best;
 }
 
-static bool ai_compute_move(GameState *state, int depth, AiMove *out_move) {
+static bool ai_compute_move(GameState *state, int depth, AiMove *out_move, bool track_stage) {
     if (!state || !out_move) return false;
     if (depth < 1) depth = 1;
     if (depth > 4) depth = 4;
 
+    if (track_stage) ai_worker_set_stage(AI_STAGE_GENERATE);
     AiMove moves[AI_MAX_MOVES];
     int count = generate_moves(state, moves, AI_MAX_MOVES);
     if (count <= 0) return false;
 
+    if (track_stage) ai_worker_set_stage(AI_STAGE_SEARCH);
     int best_score = -AI_INF;
     int best_index = 0;
     for (int i = 0; i < count; ++i) {
@@ -280,7 +292,7 @@ void ai_make_move(GameState *state) {
 
     int depth = state->ai.depth;
     AiMove best_move = {0};
-    if (!ai_compute_move(state, depth, &best_move)) {
+    if (!ai_compute_move(state, depth, &best_move, false)) {
         return;
     }
 
@@ -312,11 +324,12 @@ static int ai_worker_thread(void *userdata) {
         AiJob job = worker->job;
         worker->has_job = false;
         worker->busy = true;
+        worker->stage = AI_STAGE_GENERATE;
         SDL_UnlockMutex(worker->mutex);
 
         uint64_t start = SDL_GetPerformanceCounter();
         AiMove move = {0};
-        bool ok = ai_compute_move(&job.state, job.depth, &move);
+        bool ok = ai_compute_move(&job.state, job.depth, &move, true);
         uint64_t end = SDL_GetPerformanceCounter();
         double freq = (double)SDL_GetPerformanceFrequency();
         double elapsed_ms = freq > 0.0 ? ((double)(end - start) * 1000.0 / freq) : 0.0;
@@ -331,6 +344,7 @@ static int ai_worker_thread(void *userdata) {
         worker->has_result = true;
         worker->busy = false;
         worker->last_compute_ms = elapsed_ms;
+        worker->stage = AI_STAGE_DONE;
         SDL_UnlockMutex(worker->mutex);
     }
     return 0;
@@ -352,6 +366,7 @@ bool ai_worker_init(void) {
     }
     g_ai_worker.running = true;
     g_ai_worker.last_compute_ms = 0.0;
+    g_ai_worker.stage = AI_STAGE_IDLE;
     g_ai_worker.thread = SDL_CreateThread(ai_worker_thread, "ai_worker", &g_ai_worker);
     if (!g_ai_worker.thread) {
         SDL_Log("AI worker thread creation failed: %s", SDL_GetError());
@@ -395,6 +410,7 @@ bool ai_request_move(const GameState *state) {
     g_ai_worker.job.position_key = ai_position_key(state);
     g_ai_worker.job.turn_number = state->match.turn_number;
     g_ai_worker.has_job = true;
+    g_ai_worker.stage = AI_STAGE_QUEUED;
     SDL_CondSignal(g_ai_worker.cond);
     SDL_UnlockMutex(g_ai_worker.mutex);
     return true;
@@ -409,6 +425,9 @@ bool ai_poll_move(AiResult *out) {
     }
     *out = g_ai_worker.result;
     g_ai_worker.has_result = false;
+    if (!g_ai_worker.busy && !g_ai_worker.has_job) {
+        g_ai_worker.stage = AI_STAGE_IDLE;
+    }
     SDL_UnlockMutex(g_ai_worker.mutex);
     return true;
 }
@@ -428,6 +447,7 @@ bool ai_get_worker_status(AiWorkerStatus *out) {
     out->job_turn_number = g_ai_worker.job.turn_number;
     out->job_position_key = g_ai_worker.job.position_key;
     out->last_compute_ms = g_ai_worker.last_compute_ms;
+    out->stage = g_ai_worker.stage;
     SDL_UnlockMutex(g_ai_worker.mutex);
     return true;
 }

@@ -95,6 +95,40 @@ static bool point_in_rect(int x, int y, SDL_Rect rect) {
     return x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
 }
 
+static void format_square(int file, int rank, char *out, size_t cap) {
+    if (!out || cap < 2) return;
+    if (file < 0 || file > 7 || rank < 0 || rank > 7) {
+        snprintf(out, cap, "--");
+        return;
+    }
+    char f = (char)('a' + file);
+    int r = rank + 1;
+    snprintf(out, cap, "%c%d", f, r);
+}
+
+static void format_last_move(const GameState *state, char *out, size_t cap) {
+    if (!state || !out || cap == 0) return;
+    BoardPos from = state->last_move.start;
+    BoardPos to = state->last_move.end;
+    if (from.file < 0 || from.rank < 0 || to.file < 0 || to.rank < 0) {
+        snprintf(out, cap, "N/A");
+        return;
+    }
+    char from_buf[4];
+    char to_buf[4];
+    format_square(from.file, from.rank, from_buf, sizeof(from_buf));
+    format_square(to.file, to.rank, to_buf, sizeof(to_buf));
+    char piece = '.';
+    if (to.file >= 0 && to.file < 8 && to.rank >= 0 && to.rank < 8) {
+        piece = state->board_state.squares[to.rank][to.file].piece;
+    }
+    if (piece != '.') {
+        snprintf(out, cap, "%c %s->%s", piece, from_buf, to_buf);
+    } else {
+        snprintf(out, cap, "%s->%s", from_buf, to_buf);
+    }
+}
+
 static void draw_panel_text(RenderContext *ctx, const MenuLayout *layout, const char *text, int y) {
     draw_text(ctx->surface.renderer, layout->body_x, y, layout->scale, kPalette.panel_text, text);
 }
@@ -519,12 +553,27 @@ void ui_draw_win_screen(RenderContext *ctx, const GameState *state) {
 
     const char *phase = state->match.phase;
     const char *result = "DRAW";
+    const char *cause = "UNKNOWN";
     if (strncmp(phase, "stalemate", 9) == 0) {
         title = "STALEMATE";
-        result = "DRAW (STALEMATE)";
+        result = "DRAW";
+        cause = "STALEMATE";
+    } else if (strncmp(phase, "draw_insufficient", 16) == 0) {
+        title = "DRAW";
+        result = "DRAW";
+        cause = "INSUFFICIENT MATERIAL";
+    } else if (strncmp(phase, "draw_threefold", 14) == 0) {
+        title = "DRAW";
+        result = "DRAW";
+        cause = "THREEFOLD REPETITION";
+    } else if (strncmp(phase, "draw_fifty", 10) == 0) {
+        title = "DRAW";
+        result = "DRAW";
+        cause = "FIFTY-MOVE RULE";
     } else if (strncmp(phase, "draw", 4) == 0) {
         title = "DRAW";
-        result = "DRAW AGREED";
+        result = "DRAW";
+        cause = "AGREED DRAW";
     } else if (strncmp(phase, "checkmate", 9) == 0 || strncmp(phase, "win_white", 9) == 0 || strncmp(phase, "win_black", 9) == 0) {
         // In checkmate, the side to move is the loser.
         bool white_wins = (strncmp(phase, "win_white", 9) == 0) || (!state->match.white_to_move && strncmp(phase, "checkmate", 9) == 0);
@@ -536,15 +585,47 @@ void ui_draw_win_screen(RenderContext *ctx, const GameState *state) {
             title = "BLACK WINS";
             result = "BLACK WINS";
         }
+        if (strncmp(phase, "checkmate", 9) == 0) {
+            cause = "CHECKMATE";
+        } else if (strstr(phase, "_resign") != NULL) {
+            cause = "RESIGNATION";
+        } else if (strncmp(state->match.mode, "checkers", 8) == 0) {
+            int white_pieces = 0;
+            int black_pieces = 0;
+            for (int r = 0; r < 8; ++r) {
+                for (int f = 0; f < 8; ++f) {
+                    char p = state->board_state.squares[r][f].piece;
+                    if (p == '.') continue;
+                    if (game_is_white_piece(p)) {
+                        white_pieces++;
+                    } else if (game_is_black_piece(p)) {
+                        black_pieces++;
+                    }
+                }
+            }
+            if ((white_wins && black_pieces == 0) || (black_wins && white_pieces == 0)) {
+                cause = "ALL PIECES CAPTURED";
+            } else {
+                cause = "NO LEGAL MOVES";
+            }
+        } else {
+            cause = "WIN";
+        }
     }
 
     MenuLayout layout = draw_panel_base(ctx, title, false);
     bool allow_hover = state->ui.menu_mouse_active;
     SDL_Rect buttons[1];
     int y = layout.body_y;
-    snprintf(body, sizeof(body), "%s\nRESULT: %s", state->match.mode, result);
+    char last_move[64];
+    format_last_move(state, last_move, sizeof(last_move));
+    snprintf(body, sizeof(body), "%s
+RESULT: %s
+CAUSE: %s
+LAST MOVE: %s",
+        state->match.mode, result, cause, last_move);
     draw_panel_text(ctx, &layout, body, y);
-    y += layout.line_height * 3;
+    y += layout.line_height * 5;
     menu_vertical_buttons(&layout, buttons, 1, y);
     int mouse_x = 0;
     int mouse_y = 0;
@@ -552,6 +633,7 @@ void ui_draw_win_screen(RenderContext *ctx, const GameState *state) {
     draw_button(ctx, buttons[0], "MAIN MENU", false, state->ui.menu_keyboard_active,
         layout.scale, mouse_x, mouse_y, allow_hover);
 }
+
 
 bool ui_handle_main_menu_click(GameState *state, int mouse_x, int mouse_y, int window_w, int window_h, bool *out_request_quit) {
     if (!state) return false;

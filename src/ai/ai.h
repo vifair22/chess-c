@@ -11,6 +11,14 @@ typedef struct {
     bool valid;
 } AiResult;
 
+typedef enum {
+    AI_STAGE_IDLE = 0,
+    AI_STAGE_QUEUED,
+    AI_STAGE_GENERATE,
+    AI_STAGE_SEARCH,
+    AI_STAGE_DONE
+} AiWorkerStage;
+
 typedef struct {
     bool ready;
     bool busy;
@@ -19,6 +27,7 @@ typedef struct {
     int job_turn_number;
     uint32_t job_position_key;
     double last_compute_ms;
+    AiWorkerStage stage;
 } AiWorkerStatus;
 
 bool ai_worker_init(void);

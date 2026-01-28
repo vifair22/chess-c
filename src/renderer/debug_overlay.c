@@ -49,13 +49,26 @@ void debug_overlay_render(RenderContext *ctx, const GameState *state) {
     AiWorkerStatus ai_status = {0};
     bool ai_worker_ok = ai_get_worker_status(&ai_status);
 
+    const char *ai_stage = "IDLE";
+    if (ai_worker_ok && ai_status.ready) {
+        switch (ai_status.stage) {
+            case AI_STAGE_QUEUED: ai_stage = "QUEUED"; break;
+            case AI_STAGE_GENERATE: ai_stage = "GENERATE"; break;
+            case AI_STAGE_SEARCH: ai_stage = "SEARCH"; break;
+            case AI_STAGE_DONE: ai_stage = "DONE"; break;
+            default: ai_stage = "IDLE"; break;
+        }
+    } else {
+        ai_stage = "DISABLED";
+    }
+
     snprintf(body, sizeof(body),
         "MODE: %s\n"
         "UI: %s\n"
         "GAME: %s\n"
         "TURN: %d\n"
         "AI: %s D%d\n"
-        "AI WORKER: %s%s%s\n"
+        "AI WORKER: %s (%s)%s%s\n"
         "AI TIME: %.2f ms\n"
         "TIME: %.0fs\n"
         "TPS: %.1f (%.2f ms)",
@@ -67,6 +80,7 @@ void debug_overlay_render(RenderContext *ctx, const GameState *state) {
         state->ai.side == AI_SIDE_BLACK ? "BLACK" : "OFF",
         state->ai.depth,
         ai_worker_ok && ai_status.ready ? (ai_status.busy ? "BUSY" : "IDLE") : "DISABLED",
+        ai_stage,
         ai_worker_ok && ai_status.ready && ai_status.has_job ? " (job)" : "",
         ai_worker_ok && ai_status.ready && ai_status.has_result ? " (result)" : "",
         ai_status.last_compute_ms,
