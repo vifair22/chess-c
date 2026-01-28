@@ -75,10 +75,7 @@ void mouse_handle_event(GameState *game, const RenderContext *render, const SDL_
 
     if (game->ui.show_save_modal || game->ui.show_load_menu ||
         game->ui.show_main_menu || game->ui.show_pause_menu ||
-        strncmp(game->match.phase, "checkmate", 9) == 0 ||
-        strncmp(game->match.phase, "stalemate", 9) == 0 ||
-        strncmp(game->match.phase, "win_", 4) == 0 ||
-        strncmp(game->match.phase, "draw", 4) == 0) {
+        game_is_terminal_phase(game->match.phase)) {
         if (SDL_LockMutex(game->mutex) != 0) {
             SDL_Log("SDL_LockMutex failed: %s", SDL_GetError());
             return;

@@ -161,6 +161,11 @@ typedef struct {
 
 bool game_init(GameState *state);
 void game_destroy(GameState *state);
+bool game_is_white_piece(char piece);
+bool game_is_black_piece(char piece);
+bool game_is_terminal_phase(const char *phase);
+bool game_square_attacked_by(const GameState *state, int file, int rank, bool by_white);
+bool game_is_in_check(const GameState *state, bool white);
 // Resign for the current side to move.
 void game_resign(GameState *state);
 void game_handle_click(GameState *state, int file, int rank);

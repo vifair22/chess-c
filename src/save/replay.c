@@ -621,47 +621,72 @@ bool replay_apply_event(const ReplayEvent *ev, GameState *state, bool apply_hove
             return true;
         case REPLAY_EVENT_ASSERT_LEGAL: {
             if (!enforce_asserts) return true;
+            MoveHint saved_moves[8][8];
+            uint8_t saved_flags[8][8];
+            for (int r = 0; r < 8; ++r) {
+                for (int f = 0; f < 8; ++f) {
+                    saved_moves[r][f] = state->moves.legal_moves[r][f];
+                    saved_flags[r][f] = state->board_state.squares[r][f].flags;
+                }
+            }
             game_eval_legal_moves(state, ev->file, ev->rank);
+            bool ok = true;
             // Ensure required moves are present.
             for (int i = 0; i < ev->allowed_count; ++i) {
                 int f = ev->allowed_files[i];
                 int r = ev->allowed_ranks[i];
                 if (f < 0 || f >= 8 || r < 0 || r >= 8) {
                     SDL_Log("replay assert_legal: allowed square out of bounds %d:%d", f, r);
-                    return false;
+                    ok = false;
+                    break;
                 }
                 if (!(state->moves.legal_moves[r][f].flags & MOVE_LEGAL)) {
                     SDL_Log("replay assert_legal failed: expected legal %d:%d not found", f, r);
-                    return false;
+                    ok = false;
+                    break;
                 }
             }
             // Ensure forbidden moves are absent.
-            for (int i = 0; i < ev->forbidden_count; ++i) {
-                int f = ev->forbidden_files[i];
-                int r = ev->forbidden_ranks[i];
-                if (f < 0 || f >= 8 || r < 0 || r >= 8) {
-                    SDL_Log("replay assert_legal: forbidden square out of bounds %d:%d", f, r);
-                    return false;
-                }
-                if (state->moves.legal_moves[r][f].flags & MOVE_LEGAL) {
-                    SDL_Log("replay assert_legal failed: square %d:%d should be illegal", f, r);
-                    return false;
+            if (ok) {
+                for (int i = 0; i < ev->forbidden_count; ++i) {
+                    int f = ev->forbidden_files[i];
+                    int r = ev->forbidden_ranks[i];
+                    if (f < 0 || f >= 8 || r < 0 || r >= 8) {
+                        SDL_Log("replay assert_legal: forbidden square out of bounds %d:%d", f, r);
+                        ok = false;
+                        break;
+                    }
+                    if (state->moves.legal_moves[r][f].flags & MOVE_LEGAL) {
+                        SDL_Log("replay assert_legal failed: square %d:%d should be illegal", f, r);
+                        ok = false;
+                        break;
+                    }
                 }
             }
             // If allowed list provided, reject any extra legal moves.
-            if (ev->allowed_count > 0) {
+            if (ok && ev->allowed_count > 0) {
                 for (int r = 0; r < 8; ++r) {
                     for (int f = 0; f < 8; ++f) {
                         if (state->moves.legal_moves[r][f].flags & MOVE_LEGAL) {
                             if (!square_in_list(f, r, ev->allowed_files, ev->allowed_ranks, ev->allowed_count)) {
                                 SDL_Log("replay assert_legal failed: unexpected legal square %d:%d", f, r);
-                                return false;
+                                ok = false;
+                                break;
                             }
                         }
                     }
+                    if (!ok) {
+                        break;
+                    }
                 }
             }
-            return true;
+            for (int r = 0; r < 8; ++r) {
+                for (int f = 0; f < 8; ++f) {
+                    state->moves.legal_moves[r][f] = saved_moves[r][f];
+                    state->board_state.squares[r][f].flags = saved_flags[r][f];
+                }
+            }
+            return ok;
         }
         default:
             return true;

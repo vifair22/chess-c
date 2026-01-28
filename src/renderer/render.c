@@ -10,6 +10,7 @@
 #include "renderer/palette.h"
 #include "renderer/debug_overlay.h"
 #include "renderer/ui.h"
+#include "game/logic.h"
 
 static SDL_Texture *create_texture_from_sprite(SDL_Renderer *renderer, const PieceSprite *sprite) {
     if (!sprite || !renderer) {
@@ -458,10 +459,7 @@ void render_frame(RenderContext *ctx, GameState *state) {
         ui_draw_main_menu(ctx, &snapshot);
     } else if (snapshot.ui.show_pause_menu) {
         ui_draw_pause_menu(ctx, &snapshot);
-    } else if (strncmp(snapshot.match.phase, "checkmate", 9) == 0 ||
-               strncmp(snapshot.match.phase, "stalemate", 9) == 0 ||
-               strncmp(snapshot.match.phase, "win_", 4) == 0 ||
-               strncmp(snapshot.match.phase, "draw", 4) == 0) {
+    } else if (game_is_terminal_phase(snapshot.match.phase)) {
         ui_draw_win_screen(ctx, &snapshot);
     }
     if (snapshot.ui.show_debug) {

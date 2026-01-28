@@ -79,7 +79,11 @@ bool save_load_named(GameState *state, const char *filename) {
         return false;
     }
     replay_seed_game(&replay.start, state);
-    replay_apply_events(&replay, state, false);
+    if (!replay_apply_events(&replay, state, false)) {
+        SDL_Log("Failed to apply save events: %s", path);
+        replay_free(&replay);
+        return false;
+    }
     replay_free(&replay);
 
     state->ui.show_main_menu = false;

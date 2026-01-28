@@ -13,28 +13,29 @@ typedef struct GameSnapshot {
     ChessRulesState chess;
 } GameSnapshot;
 
-static bool is_white_piece(char piece) {
+bool game_is_white_piece(char piece) {
     return piece >= 'A' && piece <= 'Z';
 }
 
-static bool is_black_piece(char piece) {
+bool game_is_black_piece(char piece) {
     return piece >= 'a' && piece <= 'z';
 }
 
-static bool game_mode_is(const GameState *state, const char *mode) {
-    return strncmp(state->match.mode, mode, sizeof(state->match.mode)) == 0;
-}
-
-static bool is_terminal_phase(const char *phase) {
+bool game_is_terminal_phase(const char *phase) {
+    if (!phase) return false;
     return strncmp(phase, "checkmate", 9) == 0 ||
            strncmp(phase, "stalemate", 9) == 0 ||
            strncmp(phase, "win_", 4) == 0 ||
            strncmp(phase, "draw", 4) == 0;
 }
 
+static bool game_mode_is(const GameState *state, const char *mode) {
+    return strncmp(state->match.mode, mode, sizeof(state->match.mode)) == 0;
+}
+
 static bool game_allows_moves(const GameState *state) {
     // Block further input after terminal results.
-    return !is_terminal_phase(state->match.phase);
+    return !game_is_terminal_phase(state->match.phase);
 }
 
 static bool in_bounds(int file, int rank) {
@@ -104,13 +105,13 @@ bool game_undo_ex(GameState *state, bool update_anim) {
             if (from.file >= 0) break;
         }
         if (from.file >= 0) {
-            bool from_white = is_white_piece(from_piece);
+            bool from_white = game_is_white_piece(from_piece);
             for (int r = 0; r < 8; ++r) {
                 for (int f = 0; f < 8; ++f) {
                     char cur = current_board.squares[r][f].piece;
                     char prev = snap.board_state.squares[r][f].piece;
                     if (cur == '.' && prev != '.') {
-                        if ((from_white && is_white_piece(prev)) || (!from_white && is_black_piece(prev))) {
+                        if ((from_white && game_is_white_piece(prev)) || (!from_white && game_is_black_piece(prev))) {
                             to = (BoardPos){f, r};
                             break;
                         }
@@ -237,8 +238,8 @@ static bool is_insufficient_material(const GameState *state) {
                     black_knights++;
                     break;
                 default:
-                    if (is_white_piece(p)) other_white++;
-                    else if (is_black_piece(p)) other_black++;
+                    if (game_is_white_piece(p)) other_white++;
+                    else if (game_is_black_piece(p)) other_black++;
                     break;
             }
         }
@@ -331,7 +332,7 @@ static void init_board_for_mode(GameState *state) {
 }
 
 void game_resign(GameState *state) {
-    if (!state || is_terminal_phase(state->match.phase)) {
+    if (!state || game_is_terminal_phase(state->match.phase)) {
         return;
     }
     const char *phase = state->match.white_to_move ? "win_black_resign" : "win_white_resign";
@@ -457,7 +458,7 @@ static BoardPos find_king(const GameState *state, bool white) {
     return (BoardPos){-1, -1};
 }
 
-static bool square_attacked_by(const GameState *state, int file, int rank, bool by_white) {
+bool game_square_attacked_by(const GameState *state, int file, int rank, bool by_white) {
     // Pawn attacks
     int pawn_dir = by_white ? 1 : -1;
     int pawn_rank = rank + pawn_dir;
@@ -538,12 +539,12 @@ static bool square_attacked_by(const GameState *state, int file, int rank, bool 
     }
     return false;
 }
-static bool is_in_check(const GameState *state, bool white) {
+bool game_is_in_check(const GameState *state, bool white) {
     BoardPos king = find_king(state, white);
     if (king.file == -1 || king.rank == -1) {
         return false;
     }
-    return square_attacked_by(state, king.file, king.rank, !white);
+    return game_square_attacked_by(state, king.file, king.rank, !white);
 }
 
 static bool mark_check_path(GameState *state, int kf, int kr, bool by_white) {
@@ -662,7 +663,7 @@ static bool has_any_legal_move(const GameState *state, bool white_to_move) {
         for (int file = 0; file < 8; ++file) {
             char piece = game_piece_at(&tmp, file, rank);
             if (piece == '.') continue;
-            if (white_to_move ? !is_white_piece(piece) : !is_black_piece(piece)) {
+            if (white_to_move ? !game_is_white_piece(piece) : !game_is_black_piece(piece)) {
                 continue;
             }
             game_eval_legal_moves(&tmp, file, rank);
@@ -673,6 +674,7 @@ static bool has_any_legal_move(const GameState *state, bool white_to_move) {
                     }
                 }
             }
+            game_clear_move_flags(&tmp);
         }
     }
     return false;
@@ -680,7 +682,7 @@ static bool has_any_legal_move(const GameState *state, bool white_to_move) {
 
 static void update_game_phase_chess(GameState *state) {
     bool to_move_white = state->match.white_to_move;
-    bool check = is_in_check(state, to_move_white);
+    bool check = game_is_in_check(state, to_move_white);
     bool can_move = has_any_legal_move(state, to_move_white);
 
     // Clear existing check markers.
@@ -740,7 +742,7 @@ static bool checkers_is_king(char piece) {
 }
 
 static bool checkers_can_capture_from(const GameState *state, int file, int rank, char piece) {
-    bool white = is_white_piece(piece);
+    bool white = game_is_white_piece(piece);
     int dir = white ? -1 : 1;
     const int dirs_king[4][2] = {{1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
     const int dirs_man[2][2] = {{1, dir}, {-1, dir}};
@@ -755,7 +757,7 @@ static bool checkers_can_capture_from(const GameState *state, int file, int rank
         if (!in_bounds(mid_file, mid_rank) || !in_bounds(landing_file, landing_rank)) continue;
         char mid_piece = game_piece_at(state, mid_file, mid_rank);
         if (mid_piece == '.') continue;
-        if (white ? is_white_piece(mid_piece) : is_black_piece(mid_piece)) continue;
+        if (white ? game_is_white_piece(mid_piece) : game_is_black_piece(mid_piece)) continue;
         if (game_piece_at(state, landing_file, landing_rank) == '.') {
             return true;
         }
@@ -768,7 +770,7 @@ static bool checkers_player_has_capture(const GameState *state, bool white) {
         for (int file = 0; file < 8; ++file) {
             char p = game_piece_at(state, file, rank);
             if (p == '.') continue;
-            if (white ? !is_white_piece(p) : !is_black_piece(p)) continue;
+            if (white ? !game_is_white_piece(p) : !game_is_black_piece(p)) continue;
             if (checkers_can_capture_from(state, file, rank, p)) {
                 return true;
             }
@@ -778,7 +780,7 @@ static bool checkers_player_has_capture(const GameState *state, bool white) {
 }
 
 static bool checkers_piece_has_simple_step(const GameState *state, int file, int rank, char piece) {
-    bool white = is_white_piece(piece);
+    bool white = game_is_white_piece(piece);
     int dir = white ? -1 : 1;
     const int dirs_king[4][2] = {{1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
     const int dirs_man[2][2] = {{1, dir}, {-1, dir}};
@@ -804,7 +806,7 @@ static bool checkers_player_has_any_move(const GameState *state, bool white) {
         for (int file = 0; file < 8; ++file) {
             char p = game_piece_at(state, file, rank);
             if (p == '.') continue;
-            if (white ? !is_white_piece(p) : !is_black_piece(p)) continue;
+            if (white ? !game_is_white_piece(p) : !game_is_black_piece(p)) continue;
             if (checkers_piece_has_simple_step(state, file, rank, p)) {
                 return true;
             }
@@ -820,7 +822,7 @@ static void update_game_phase_checkers(GameState *state) {
         for (int file = 0; file < 8; ++file) {
             char p = game_piece_at(state, file, rank);
             if (p == '.') continue;
-            if (is_white_piece(p)) ++white_pieces;
+            if (game_is_white_piece(p)) ++white_pieces;
             else ++black_pieces;
         }
     }
@@ -857,7 +859,7 @@ static void add_move_checkers(GameState *state, int from_file, int from_rank, in
         hint.flags |= MOVE_CAPTURE;
     }
     char moving = game_piece_at(state, from_file, from_rank);
-    bool white = is_white_piece(moving);
+    bool white = game_is_white_piece(moving);
     int promo_rank = white ? 0 : 7;
     if (!checkers_is_king(moving) && to_rank == promo_rank) {
         hint.flags |= MOVE_PROMOTION;
@@ -873,7 +875,7 @@ static void add_move_checkers(GameState *state, int from_file, int from_rank, in
 static void checkers_gen_moves_for_piece(GameState *state, int file, int rank, bool force_capture) {
     char piece = game_piece_at(state, file, rank);
     if (piece == '.') return;
-    bool white = is_white_piece(piece);
+    bool white = game_is_white_piece(piece);
     int dir = white ? -1 : 1;
     const int dirs_king[4][2] = {{1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
     const int dirs_man[2][2] = {{1, dir}, {-1, dir}};
@@ -915,7 +917,7 @@ static void game_eval_legal_moves_checkers(GameState *state, int file, int rank)
     if (!in_bounds(file, rank)) return;
     char piece = game_piece_at(state, file, rank);
     if (piece == '.') return;
-    bool white = is_white_piece(piece);
+    bool white = game_is_white_piece(piece);
     if ((white && !state->match.white_to_move) || (!white && state->match.white_to_move)) {
         return;
     }
@@ -974,6 +976,27 @@ static void apply_checkers_move(GameState *state, int from_file, int from_rank, 
         update_game_phase_checkers(state);
     }
 }
+
+static void apply_chess_move_common(GameState *state, BoardPos from, BoardPos to, MoveHint hint) {
+    snapshot_push(state);
+    state->ui.undo_used = false;
+    state->last_move.start = from;
+    state->last_move.end = to;
+    apply_basic_move(state, from.file, from.rank, to.file, to.rank, hint, true);
+    update_game_phase_chess(state);
+    game_clear_move_flags(state);
+    state->moves.selected.file = -1;
+    state->moves.selected.rank = -1;
+    state->match.turn_number += 1;
+}
+
+static void apply_checkers_move_common(GameState *state, int from_file, int from_rank, int to_file, int to_rank, MoveHint hint, bool snapshot) {
+    if (snapshot) {
+        snapshot_push(state);
+        state->ui.undo_used = false;
+    }
+    apply_checkers_move(state, from_file, from_rank, to_file, to_rank, hint);
+}
 bool game_init(GameState *state) {
     state->mutex = SDL_CreateMutex();
     if (!state->mutex) {
@@ -1017,8 +1040,8 @@ static void game_handle_click_chess(GameState *state, int file, int rank) {
         return;
     }
     char clicked = game_piece_at(state, file, rank);
-    bool clicked_white = is_white_piece(clicked);
-    bool clicked_black = is_black_piece(clicked);
+    bool clicked_white = game_is_white_piece(clicked);
+    bool clicked_black = game_is_black_piece(clicked);
 
     bool has_selection = state->moves.selected.file >= 0 && state->moves.selected.rank >= 0;
 
@@ -1042,7 +1065,7 @@ static void game_handle_click_chess(GameState *state, int file, int rank) {
     }
 
     char selected_piece = game_piece_at(state, state->moves.selected.file, state->moves.selected.rank);
-    bool selected_white = is_white_piece(selected_piece);
+    bool selected_white = game_is_white_piece(selected_piece);
 
     // Switch selection to another friendly piece.
     if (clicked != '.' && ((selected_white && clicked_white) || (!selected_white && clicked_black))) {
@@ -1058,18 +1081,10 @@ static void game_handle_click_chess(GameState *state, int file, int rank) {
     }
 
     // Apply legal move with metadata (handles castles/en passant/promo).
-    snapshot_push(state);
-    state->ui.undo_used = false;
-    state->last_move.start = (BoardPos){state->moves.selected.file, state->moves.selected.rank};
-    state->last_move.end = (BoardPos){file, rank};
-    apply_basic_move(state, state->moves.selected.file, state->moves.selected.rank, file, rank, hint, true);
-
-    update_game_phase_chess(state);
-
-    game_clear_move_flags(state);
-    state->moves.selected.file = -1;
-    state->moves.selected.rank = -1;
-    state->match.turn_number += 1;
+    apply_chess_move_common(state,
+        (BoardPos){state->moves.selected.file, state->moves.selected.rank},
+        (BoardPos){file, rank},
+        hint);
 }
 
 static void game_handle_click_checkers(GameState *state, int file, int rank) {
@@ -1077,8 +1092,8 @@ static void game_handle_click_checkers(GameState *state, int file, int rank) {
         return;
     }
     char clicked = game_piece_at(state, file, rank);
-    bool clicked_white = is_white_piece(clicked);
-    bool clicked_black = is_black_piece(clicked);
+    bool clicked_white = game_is_white_piece(clicked);
+    bool clicked_black = game_is_black_piece(clicked);
     bool has_selection = state->moves.selected.file >= 0 && state->moves.selected.rank >= 0;
 
     if (!has_selection) {
@@ -1122,11 +1137,11 @@ static void game_handle_click_checkers(GameState *state, int file, int rank) {
         return;
     }
 
-    if (!state->variant.checkers_must_continue) {
-        snapshot_push(state);
-        state->ui.undo_used = false;
-    }
-    apply_checkers_move(state, state->moves.selected.file, state->moves.selected.rank, file, rank, hint);
+    apply_checkers_move_common(state,
+        state->moves.selected.file, state->moves.selected.rank,
+        file, rank,
+        hint,
+        !state->variant.checkers_must_continue);
 }
 
 void game_handle_click(GameState *state, int file, int rank) {
@@ -1172,11 +1187,11 @@ bool game_apply_move(GameState *state, BoardPos from, BoardPos to, MoveHint hint
             hint.flags |= MOVE_PROMOTION;
             hint.promotion = promo_override;
         }
-        if (!state->variant.checkers_must_continue) {
-            snapshot_push(state);
-            state->ui.undo_used = false;
-        }
-        apply_checkers_move(state, from.file, from.rank, to.file, to.rank, hint);
+        apply_checkers_move_common(state,
+            from.file, from.rank,
+            to.file, to.rank,
+            hint,
+            !state->variant.checkers_must_continue);
         return true;
     }
 
@@ -1193,16 +1208,7 @@ bool game_apply_move(GameState *state, BoardPos from, BoardPos to, MoveHint hint
         hint.promotion = promo_override;
     }
 
-    snapshot_push(state);
-    state->ui.undo_used = false;
-    state->last_move.start = from;
-    state->last_move.end = to;
-    apply_basic_move(state, from.file, from.rank, to.file, to.rank, hint, true);
-    update_game_phase_chess(state);
-    game_clear_move_flags(state);
-    state->moves.selected.file = -1;
-    state->moves.selected.rank = -1;
-    state->match.turn_number += 1;
+    apply_chess_move_common(state, from, to, hint);
     return true;
 }
 
@@ -1210,7 +1216,7 @@ static void add_move_if_legal(GameState *state, int from_file, int from_rank, in
     if (!in_bounds(to_file, to_rank)) {
         return;
     }
-    bool moving_white = is_white_piece(game_piece_at(state, from_file, from_rank));
+    bool moving_white = game_is_white_piece(game_piece_at(state, from_file, from_rank));
     char target_piece = game_piece_at(state, to_file, to_rank);
     if (target_piece == (moving_white ? 'k' : 'K')) {
         return; // cannot capture the enemy king
@@ -1219,7 +1225,7 @@ static void add_move_if_legal(GameState *state, int from_file, int from_rank, in
     copy_state_minimal(&tmp, state);
     apply_basic_move(&tmp, from_file, from_rank, to_file, to_rank, hint, false);
     BoardPos king = find_king(&tmp, moving_white);
-    if (king.file == -1 || square_attacked_by(&tmp, king.file, king.rank, !moving_white)) {
+    if (king.file == -1 || game_square_attacked_by(&tmp, king.file, king.rank, !moving_white)) {
         return; // leaves or puts own king in check
     }
 
@@ -1236,7 +1242,7 @@ static bool is_empty(const GameState *state, int file, int rank) {
 static bool is_opponent_piece(const GameState *state, int file, int rank, bool white) {
     char p = game_piece_at(state, file, rank);
     if (p == '.') return false;
-    return white ? is_black_piece(p) : is_white_piece(p);
+    return white ? game_is_black_piece(p) : game_is_white_piece(p);
 }
 
 static void gen_pawn_moves(GameState *state, int file, int rank, bool white) {
@@ -1293,7 +1299,7 @@ static void gen_knight_moves(GameState *state, int file, int rank, bool white) {
         int tr = rank + offsets[i][1];
         if (!in_bounds(tf, tr)) continue;
         char target = game_piece_at(state, tf, tr);
-        if (target != '.' && ((white && is_white_piece(target)) || (!white && is_black_piece(target)))) continue;
+        if (target != '.' && ((white && game_is_white_piece(target)) || (!white && game_is_black_piece(target)))) continue;
         MoveHint hint = {0};
         add_move_if_legal(state, file, rank, tf, tr, hint);
     }
@@ -1308,7 +1314,7 @@ static void gen_sliding(GameState *state, int file, int rank, bool white, const 
         while (in_bounds(tf, tr)) {
             char target = game_piece_at(state, tf, tr);
             if (target != '.') {
-                if ((white && is_white_piece(target)) || (!white && is_black_piece(target))) {
+                if ((white && game_is_white_piece(target)) || (!white && game_is_black_piece(target))) {
                     break;
                 }
                 MoveHint hint = {0};
@@ -1331,14 +1337,14 @@ static void gen_king_moves(GameState *state, int file, int rank, bool white) {
             int tr = rank + dr;
             if (!in_bounds(tf, tr)) continue;
             char target = game_piece_at(state, tf, tr);
-            if (target != '.' && ((white && is_white_piece(target)) || (!white && is_black_piece(target)))) continue;
+            if (target != '.' && ((white && game_is_white_piece(target)) || (!white && game_is_black_piece(target)))) continue;
             MoveHint hint = {0};
             add_move_if_legal(state, file, rank, tf, tr, hint);
         }
     }
 
     // Castling
-    bool in_check = square_attacked_by(state, file, rank, !white);
+    bool in_check = game_square_attacked_by(state, file, rank, !white);
     if (in_check) return;
     int back_rank = white ? 7 : 0;
     char rook_k = game_piece_at(state, 7, back_rank);
@@ -1347,7 +1353,7 @@ static void gen_king_moves(GameState *state, int file, int rank, bool white) {
     bool queenside_rook_ok = white ? (rook_q == 'R') : (rook_q == 'r');
     if ((white ? state->chess.rights.white_can_castle_kingside : state->chess.rights.black_can_castle_kingside) && kingside_rook_ok) {
         if (game_piece_at(state, 5, back_rank) == '.' && game_piece_at(state, 6, back_rank) == '.') {
-            if (!square_attacked_by(state, 5, back_rank, !white) && !square_attacked_by(state, 6, back_rank, !white)) {
+            if (!game_square_attacked_by(state, 5, back_rank, !white) && !game_square_attacked_by(state, 6, back_rank, !white)) {
                 MoveHint hint = {.flags = MOVE_CASTLE_KING};
                 add_move_if_legal(state, file, rank, 6, back_rank, hint);
             }
@@ -1355,7 +1361,7 @@ static void gen_king_moves(GameState *state, int file, int rank, bool white) {
     }
     if ((white ? state->chess.rights.white_can_castle_queenside : state->chess.rights.black_can_castle_queenside) && queenside_rook_ok) {
         if (game_piece_at(state, 1, back_rank) == '.' && game_piece_at(state, 2, back_rank) == '.' && game_piece_at(state, 3, back_rank) == '.') {
-            if (!square_attacked_by(state, 2, back_rank, !white) && !square_attacked_by(state, 3, back_rank, !white)) {
+            if (!game_square_attacked_by(state, 2, back_rank, !white) && !game_square_attacked_by(state, 3, back_rank, !white)) {
                 MoveHint hint = {.flags = MOVE_CASTLE_QUEEN};
                 add_move_if_legal(state, file, rank, 2, back_rank, hint);
             }
@@ -1373,7 +1379,7 @@ static void game_eval_legal_moves_chess(GameState *state, int file, int rank) {
     if (piece == '.') {
         return;
     }
-    bool white = is_white_piece(piece);
+    bool white = game_is_white_piece(piece);
     if ((white && !state->match.white_to_move) || (!white && state->match.white_to_move)) {
         return;
     }

@@ -313,10 +313,7 @@ int main(int argc, char **argv) {
             int turn_number = 0;
             if (SDL_LockMutex(game.mutex) == 0) {
                 turn_number = game.match.turn_number;
-                is_terminal = strncmp(game.match.phase, "checkmate", 9) == 0 ||
-                              strncmp(game.match.phase, "stalemate", 9) == 0 ||
-                              strncmp(game.match.phase, "win_", 4) == 0 ||
-                              strncmp(game.match.phase, "draw", 4) == 0;
+                is_terminal = game_is_terminal_phase(game.match.phase);
                 SDL_UnlockMutex(game.mutex);
             }
             if (turn_number != game.autosave_last_turn) {
