@@ -80,6 +80,8 @@ static void ai_clone_state(GameState *dst, const GameState *src) {
     dst->chess = src->chess;
     dst->moves.selected = src->moves.selected;
     dst->moves.hover_pos = (BoardPos){-1, -1};
+    dst->move_history_len = 0;
+    memset(dst->move_history, 0, sizeof(dst->move_history));
     dst->mutex = NULL;
     dst->snapshots = NULL;
     dst->snapshot_len = 0;
@@ -95,6 +97,8 @@ static void ai_snapshot_state(GameState *dst, const GameState *src) {
     dst->chess = src->chess;
     dst->moves.selected = src->moves.selected;
     dst->moves.hover_pos = (BoardPos){-1, -1};
+    dst->move_history_len = 0;
+    memset(dst->move_history, 0, sizeof(dst->move_history));
     dst->mutex = NULL;
     dst->snapshots = NULL;
     dst->snapshot_len = 0;

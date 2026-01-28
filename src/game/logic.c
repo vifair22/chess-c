@@ -2,6 +2,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 #define GAME_SNAPSHOT_MAX 256
 
@@ -15,6 +16,8 @@ typedef struct GameSnapshot {
     int white_captures_len;
     char black_captures[32];
     int black_captures_len;
+    MoveRecord move_history[512];
+    int move_history_len;
 } GameSnapshot;
 
 bool game_is_white_piece(char piece) {
@@ -36,6 +39,10 @@ bool game_is_terminal_phase(const char *phase) {
 static bool game_mode_is(const GameState *state, const char *mode) {
     return strncmp(state->match.mode, mode, sizeof(state->match.mode)) == 0;
 }
+
+static void copy_state_minimal(GameState *dst, const GameState *src);
+static void apply_basic_move(GameState *state, int from_file, int from_rank, int to_file, int to_rank, MoveHint hint, bool update_counters);
+static void update_game_phase_chess(GameState *state);
 
 static bool game_allows_moves_ex(const GameState *state, bool allow_ai_turn) {
     // Block further input after terminal results.
@@ -63,6 +70,118 @@ static void record_capture(GameState *state, char capturer, char captured) {
     }
 }
 
+static bool can_piece_move_to(const GameState *state, BoardPos from, BoardPos to) {
+    if (!state) return false;
+    GameState tmp;
+    copy_state_minimal(&tmp, state);
+    game_eval_legal_moves(&tmp, from.file, from.rank);
+    MoveHint hint = tmp.moves.legal_moves[to.rank][to.file];
+    return (hint.flags & MOVE_LEGAL) != 0;
+}
+
+static void build_san(const GameState *state, BoardPos from, BoardPos to, MoveHint hint,
+    char moving, char captured, char *out, size_t cap) {
+    if (!out || cap == 0) return;
+    out[0] = '\0';
+    bool is_checkers = game_mode_is(state, "checkers");
+    if (is_checkers) {
+        snprintf(out, cap, "%c%d-%c%d",
+            (char)('a' + from.file), from.rank + 1,
+            (char)('a' + to.file), to.rank + 1);
+        return;
+    }
+    if (hint.flags & MOVE_CASTLE_KING) {
+        snprintf(out, cap, "O-O");
+    } else if (hint.flags & MOVE_CASTLE_QUEEN) {
+        snprintf(out, cap, "O-O-O");
+    } else {
+        bool is_pawn = (moving == 'P' || moving == 'p');
+        bool is_capture = (captured != '.') || (hint.flags & MOVE_EN_PASSANT);
+        char piece_char = is_pawn ? '\0' : (char)toupper((unsigned char)moving);
+        char disamb[3] = {0};
+        if (!is_pawn && (piece_char == 'N' || piece_char == 'B' || piece_char == 'R' || piece_char == 'Q' || piece_char == 'K')) {
+            bool any_other = false;
+            bool same_file = false;
+            bool same_rank = false;
+            for (int r = 0; r < 8; ++r) {
+                for (int f = 0; f < 8; ++f) {
+                    if (f == from.file && r == from.rank) continue;
+                    char p = game_piece_at(state, f, r);
+                    if (p == moving) {
+                        if (can_piece_move_to(state, (BoardPos){f, r}, to)) {
+                            any_other = true;
+                            if (f == from.file) same_file = true;
+                            if (r == from.rank) same_rank = true;
+                        }
+                    }
+                }
+            }
+            if (any_other) {
+                if (same_file && same_rank) {
+                    disamb[0] = (char)('a' + from.file);
+                    disamb[1] = (char)('1' + from.rank);
+                    disamb[2] = '\0';
+                } else if (same_file) {
+                    disamb[0] = (char)('1' + from.rank);
+                    disamb[1] = '\0';
+                } else if (same_rank) {
+                    disamb[0] = (char)('a' + from.file);
+                    disamb[1] = '\0';
+                } else {
+                    disamb[0] = (char)('a' + from.file);
+                    disamb[1] = '\0';
+                }
+            }
+        }
+        char dest[3];
+        dest[0] = (char)('a' + to.file);
+        dest[1] = (char)('1' + to.rank);
+        dest[2] = '\0';
+        char promo[4] = {0};
+        if ((hint.flags & MOVE_PROMOTION) && hint.promotion) {
+            promo[0] = '=';
+            promo[1] = (char)toupper((unsigned char)hint.promotion);
+            promo[2] = '\0';
+        }
+        if (is_pawn) {
+            if (is_capture) {
+                snprintf(out, cap, "%c%c%s%s", (char)('a' + from.file), 'x', dest, promo);
+            } else {
+                snprintf(out, cap, "%s%s", dest, promo);
+            }
+        } else {
+            if (is_capture) {
+                snprintf(out, cap, "%c%sx%s%s", piece_char, disamb, dest, promo);
+            } else {
+                snprintf(out, cap, "%c%s%s%s", piece_char, disamb, dest, promo);
+            }
+        }
+    }
+    GameState tmp;
+    copy_state_minimal(&tmp, state);
+    apply_basic_move(&tmp, from.file, from.rank, to.file, to.rank, hint, false);
+    update_game_phase_chess(&tmp);
+    if (strncmp(tmp.match.phase, "checkmate", 9) == 0) {
+        strncat(out, "#", cap - strlen(out) - 1);
+    } else if (game_is_in_check(&tmp, tmp.match.white_to_move)) {
+        strncat(out, "+", cap - strlen(out) - 1);
+    }
+}
+
+static void record_move(GameState *state, BoardPos from, BoardPos to, char piece, char promotion, bool white_move, MoveHint hint, char captured) {
+    if (!state) return;
+    int cap = (int)(sizeof(state->move_history) / sizeof(state->move_history[0]));
+    if (state->move_history_len >= cap) return;
+    MoveRecord *rec = &state->move_history[state->move_history_len++];
+    rec->from = from;
+    rec->to = to;
+    rec->piece = piece;
+    rec->promotion = promotion;
+    rec->white_move = white_move;
+    rec->san[0] = '\0';
+    build_san(state, from, to, hint, piece, captured, rec->san, sizeof(rec->san));
+}
+
 static bool game_allows_moves(const GameState *state) {
     return game_allows_moves_ex(state, false);
 }
@@ -88,6 +207,8 @@ static void copy_state_minimal(GameState *dst, const GameState *src) {
     dst->chess = src->chess;
     dst->moves.selected = src->moves.selected;
     dst->moves.hover_pos = (BoardPos){-1, -1};
+    dst->move_history_len = 0;
+    memset(dst->move_history, 0, sizeof(dst->move_history));
     dst->mutex = NULL;
     dst->snapshots = NULL;
     dst->snapshot_len = 0;
@@ -104,6 +225,8 @@ static void snapshot_store(GameSnapshot *dst, const GameState *state) {
     memcpy(dst->white_captures, state->white_captures, sizeof(dst->white_captures));
     dst->black_captures_len = state->black_captures_len;
     memcpy(dst->black_captures, state->black_captures, sizeof(dst->black_captures));
+    dst->move_history_len = state->move_history_len;
+    memcpy(dst->move_history, state->move_history, sizeof(dst->move_history));
 }
 
 static void snapshot_push(GameState *state) {
@@ -131,6 +254,8 @@ bool game_undo_ex(GameState *state, bool update_anim) {
     memcpy(state->white_captures, snap.white_captures, sizeof(state->white_captures));
     state->black_captures_len = snap.black_captures_len;
     memcpy(state->black_captures, snap.black_captures, sizeof(state->black_captures));
+    state->move_history_len = snap.move_history_len;
+    memcpy(state->move_history, snap.move_history, sizeof(state->move_history));
     if (update_anim) {
         BoardPos from = {-1, -1};
         BoardPos to = {-1, -1};
@@ -1037,7 +1162,9 @@ static void apply_chess_move_common(GameState *state, BoardPos from, BoardPos to
     } else {
         captured = game_piece_at(state, to.file, to.rank);
     }
+    char promo = ((hint.flags & MOVE_PROMOTION) && hint.promotion) ? hint.promotion : '\0';
     record_capture(state, moving, captured);
+    record_move(state, from, to, moving, promo, state->match.white_to_move, hint, captured);
     apply_basic_move(state, from.file, from.rank, to.file, to.rank, hint, true);
     update_game_phase_chess(state);
     game_clear_move_flags(state);
@@ -1051,6 +1178,8 @@ static void apply_checkers_move_common(GameState *state, int from_file, int from
         snapshot_push(state);
         state->ui.undo_used = false;
     }
+    char moving = game_piece_at(state, from_file, from_rank);
+    record_move(state, (BoardPos){from_file, from_rank}, (BoardPos){to_file, to_rank}, moving, '\0', state->match.white_to_move, hint, '\0');
     apply_checkers_move(state, from_file, from_rank, to_file, to_rank, hint);
 }
 bool game_init(GameState *state) {
@@ -1579,6 +1708,8 @@ void game_reset(GameState *state, const char *mode) {
     state->ui.load_selected = -1;
     state->ui.load_scroll_dragging = false;
     state->ui.load_scroll_drag_offset = 0;
+    state->ui.turn_log_scroll = 0;
+    state->ui.turn_log_max_scroll = 0;
     state->ai_last_move_ms = 0.0;
     state->ai_timing_active = false;
     state->ai_timing_start = 0;
@@ -1588,6 +1719,8 @@ void game_reset(GameState *state, const char *mode) {
     state->black_captures_len = 0;
     memset(state->white_captures, 0, sizeof(state->white_captures));
     memset(state->black_captures, 0, sizeof(state->black_captures));
+    state->move_history_len = 0;
+    memset(state->move_history, 0, sizeof(state->move_history));
 
     game_clear_move_flags(state);
     reset_position_history(state);

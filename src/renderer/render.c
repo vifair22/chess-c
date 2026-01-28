@@ -405,8 +405,8 @@ static int measure_text_width_simple(const char *text, int scale) {
     return max_width;
 }
 
-static void draw_turn_indicator(RenderContext *ctx, const GameState *state, const BoardGeometry *geo) {
-    if (!ctx || !state || !geo) return;
+static void draw_turn_indicator(RenderContext *ctx, const GameState *state, GameState *ui_state, const BoardGeometry *geo) {
+    if (!ctx || !state || !ui_state || !geo) return;
     if (geo->turn_margin <= 0) return;
 
     int text_scale = geo->cell / 20;
@@ -441,8 +441,61 @@ static void draw_turn_indicator(RenderContext *ctx, const GameState *state, cons
     char text[32];
     snprintf(text, sizeof(text), "TURN: %s", turn);
     int x1 = box_x + (box_w - label_w) / 2;
-    int y1 = box_y + gap * 2;
-    draw_text(ctx->surface.renderer, x1, y1, text_scale, kPalette.panel_text, text);
+    int y = box_y + gap * 2;
+    draw_text(ctx->surface.renderer, x1, y, text_scale, kPalette.panel_text, text);
+
+    int list_scale = text_scale - 1;
+    if (list_scale < 1) list_scale = 1;
+    int list_line_h = (7 + 1) * list_scale;
+    int max_lines = (box_h - y - gap) / list_line_h;
+    if (max_lines < 1) return;
+    int total = state->move_history_len;
+    if (total <= 0) {
+        ui_state->ui.turn_log_max_scroll = 0;
+        return;
+    }
+    int max_scroll = total > max_lines ? (total - max_lines) : 0;
+    ui_state->ui.turn_log_max_scroll = max_scroll;
+    int scroll = ui_state->ui.turn_log_scroll;
+    if (scroll < 0) scroll = 0;
+    if (scroll > max_scroll) scroll = max_scroll;
+    int start = total > max_lines ? (total - max_lines - scroll) : 0;
+    y += line_h + gap;
+    int bar_w = 4;
+    int bar_x = box_x + box_w - bar_w - gap;
+    int bar_y = y;
+    int bar_h = box_h - (y - box_y) - gap;
+    if (bar_h < 8) bar_h = 8;
+    if (max_scroll > 0) {
+        SDL_Color track = kPalette.panel_border;
+        track.a = 120;
+        SDL_SetRenderDrawColor(ctx->surface.renderer, track.r, track.g, track.b, track.a);
+        SDL_Rect track_rect = {bar_x, bar_y, bar_w, bar_h};
+        SDL_RenderFillRect(ctx->surface.renderer, &track_rect);
+
+        int thumb_h = bar_h * max_lines / total;
+        if (thumb_h < 8) thumb_h = 8;
+        int usable = bar_h - thumb_h;
+        int thumb_y = bar_y + (usable > 0 ? (usable - (usable * scroll) / max_scroll) : 0);
+        SDL_Color thumb = kPalette.panel_text;
+        thumb.a = 200;
+        SDL_SetRenderDrawColor(ctx->surface.renderer, thumb.r, thumb.g, thumb.b, thumb.a);
+        SDL_Rect thumb_rect = {bar_x, thumb_y, bar_w, thumb_h};
+        SDL_RenderFillRect(ctx->surface.renderer, &thumb_rect);
+    }
+
+    int text_x = box_x + gap;
+    for (int i = start; i < total; ++i) {
+        const MoveRecord *rec = &state->move_history[i];
+        char line[32];
+        int turn_no = (i / 2) + 1;
+        char side = rec->white_move ? 'W' : 'B';
+        const char *san = rec->san[0] ? rec->san : "-";
+        snprintf(line, sizeof(line), "%3d%c %-12s", turn_no, side, san);
+        draw_text(ctx->surface.renderer, text_x, y, list_scale, kPalette.label_text, line);
+        y += list_line_h;
+        if (y + list_line_h > box_y + box_h - gap) break;
+    }
 }
 
 static void draw_board_labels(SDL_Renderer *renderer, int offset_x, int offset_y, int cell, int board_size, int window_width, int window_height) {
@@ -613,7 +666,7 @@ void render_frame(RenderContext *ctx, GameState *state) {
     draw_board(ctx, &snapshot, geo.offset_x, geo.offset_y, geo.cell, now_ms);
     draw_board_labels(ctx->surface.renderer, geo.offset_x, geo.offset_y, geo.cell, geo.board_size, ctx->surface.window_width, ctx->surface.window_height);
     draw_captures(ctx, &snapshot, &geo);
-    draw_turn_indicator(ctx, &snapshot, &geo);
+    draw_turn_indicator(ctx, &snapshot, state, &geo);
 
     if (snapshot.ui.show_main_menu) {
         ui_draw_main_menu(ctx, &snapshot);

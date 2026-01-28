@@ -153,6 +153,15 @@ void mouse_handle_event(GameState *game, const RenderContext *render, const SDL_
             game->ui.load_scroll += delta;
             if (game->ui.load_scroll < 0) game->ui.load_scroll = 0;
             if (game->ui.load_scroll > max_start) game->ui.load_scroll = max_start;
+        } else if (!game->ui.show_main_menu && !game->ui.show_pause_menu &&
+                   !game->ui.show_save_modal && !game->ui.show_load_confirm &&
+                   !game->ui.show_new_menu) {
+            int delta = (event->wheel.y > 0) ? 1 : (event->wheel.y < 0 ? -1 : 0);
+            game->ui.turn_log_scroll += delta;
+            if (game->ui.turn_log_scroll < 0) game->ui.turn_log_scroll = 0;
+            if (game->ui.turn_log_scroll > game->ui.turn_log_max_scroll) {
+                game->ui.turn_log_scroll = game->ui.turn_log_max_scroll;
+            }
         }
         SDL_UnlockMutex(game->mutex);
         return;
@@ -291,7 +300,8 @@ void mouse_handle_event(GameState *game, const RenderContext *render, const SDL_
             }
             if (moved_piece != '.' &&
                 ((from_piece == 'P' || from_piece == 'p') ||
-                 (from_piece == 'M' || from_piece == 'm'))) {
+                 (from_piece == 'M' || from_piece == 'm')) &&
+                moved_piece != from_piece) {
                 promo = moved_piece;
             }
             replay_recorder_record_move(replay_global_recorder(), SDL_GetTicks(),

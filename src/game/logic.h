@@ -81,6 +81,15 @@ typedef struct {
 } LastMove;
 
 typedef struct {
+    BoardPos from;
+    BoardPos to;
+    char piece;
+    char promotion;
+    bool white_move;
+    char san[16];
+} MoveRecord;
+
+typedef struct {
     bool show_main_menu;
     bool show_pause_menu;
     bool show_debug;
@@ -107,7 +116,9 @@ typedef struct {
     int load_selected;
     bool load_scroll_dragging;
     int load_scroll_drag_offset;
-} UiState;
+    int turn_log_scroll;
+    int turn_log_max_scroll;
+  } UiState;
 
 typedef struct {
     double last_frame_seconds; // duration of last frame/tick
@@ -157,6 +168,8 @@ typedef struct {
     int white_captures_len;
     char black_captures[32];
     int black_captures_len;
+    MoveRecord move_history[512];
+    int move_history_len;
     UiState ui;
     PerfState perf;
     AiSettings ai;

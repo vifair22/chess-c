@@ -568,8 +568,19 @@ bool replay_apply_event(const ReplayEvent *ev, GameState *state, bool apply_hove
         case REPLAY_EVENT_MOVE: {
             MoveHint hint = {0};
             if (ev->text[0] && ev->text[0] != '-') {
-                hint.flags |= MOVE_PROMOTION;
-                hint.promotion = ev->text[0];
+                char moving = game_piece_at(state, ev->file, ev->rank);
+                bool is_pawn = (moving == 'P' || moving == 'p');
+                bool is_man = (moving == 'M' || moving == 'm');
+                int promo_rank = -1;
+                if (is_pawn) {
+                    promo_rank = (moving == 'P') ? 0 : 7;
+                } else if (is_man) {
+                    promo_rank = (moving == 'M') ? 0 : 7;
+                }
+                if (promo_rank != -1 && ev->aux_rank == promo_rank) {
+                    hint.flags |= MOVE_PROMOTION;
+                    hint.promotion = ev->text[0];
+                }
             }
             return game_apply_move(state, (BoardPos){ev->file, ev->rank}, (BoardPos){ev->aux_file, ev->aux_rank}, hint);
         }
