@@ -153,6 +153,10 @@ typedef struct {
     LastMove last_move;
     VariantState variant;
     ChessRulesState chess;
+    char white_captures[32];
+    int white_captures_len;
+    char black_captures[32];
+    int black_captures_len;
     UiState ui;
     PerfState perf;
     AiSettings ai;

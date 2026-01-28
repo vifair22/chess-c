@@ -59,6 +59,7 @@ endif()
 add_executable(chess-c
     src/main.c
     src/ai/ai.c
+    src/ai/search.c
     src/game/logic.c
     src/renderer/draw.c
     src/renderer/render.c

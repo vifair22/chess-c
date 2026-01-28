@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "save/replay.h"
+#include "ai/search.h"
 #define AI_MAX_MOVES 256
 #define AI_INF 1000000
 #define AI_MATE 100000
@@ -455,6 +456,19 @@ static bool ai_compute_move(GameState *state, int depth, AiMove *out_move, bool 
     if (!state || !out_move) return false;
     if (depth < 1) depth = 1;
     if (depth > 8) depth = 8;
+
+    bool checkers = strncmp(state->match.mode, "checkers", 8) == 0;
+    if (!checkers) {
+        if (track_stage) ai_worker_set_stage(AI_STAGE_SEARCH);
+        SearchMove best = {.from = {-1, -1}, .to = {-1, -1}, .hint = {0}};
+        if (!search_best_move(state, depth, &best)) {
+            return false;
+        }
+        out_move->from = best.from;
+        out_move->to = best.to;
+        out_move->hint = best.hint;
+        return true;
+    }
 
     AiMove best_move = {0};
     bool found = false;

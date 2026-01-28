@@ -304,6 +304,78 @@ static void draw_board(RenderContext *ctx, const GameState *state, int offset_x,
     }
 }
 
+static void draw_capture_list(RenderContext *ctx, const GameState *state, const char *list, int len,
+    int start_x, int start_y, int icon_cell, int gap, bool is_checkers, bool bottom_up) {
+    if (len <= 0) return;
+    int rows = 8;
+    int cols = 2;
+    int max_slots = rows * cols;
+    int total_w = cols * icon_cell + (cols - 1) * gap;
+    if (start_x + total_w > ctx->surface.window_width - 2) {
+        start_x = ctx->surface.window_width - 2 - total_w;
+    }
+    if (start_x < 2) start_x = 2;
+
+    int total_h = rows * icon_cell + (rows - 1) * gap;
+    int y = start_y;
+    if (y + total_h > ctx->surface.window_height - 2) {
+        y = ctx->surface.window_height - 2 - total_h;
+    }
+    if (y < 2) y = 2;
+
+    int limit = len < max_slots ? len : max_slots;
+    for (int i = 0; i < limit; ++i) {
+        int col = i / rows;
+        int row = i % rows;
+        if (bottom_up) {
+            row = (rows - 1) - row;
+        }
+        int cx = start_x + col * (icon_cell + gap) + icon_cell / 2;
+        int cy = y + row * (icon_cell + gap) + icon_cell / 2;
+        char piece = list[i];
+        SDL_Texture *tex = texture_for_piece(ctx, piece, is_checkers);
+        if (tex) {
+            draw_piece_texture(ctx->surface.renderer, tex, icon_cell, cx, cy);
+        } else if (is_checkers) {
+            SDL_Rect cell_rect = {cx - icon_cell / 2, cy - icon_cell / 2, icon_cell, icon_cell};
+            SDL_Color color = game_is_white_piece(piece) ? kPalette.piece_light : kPalette.piece_dark;
+            draw_checker_piece(ctx->surface.renderer, piece, &cell_rect, color);
+        }
+    }
+}
+
+static void draw_captures(RenderContext *ctx, const GameState *state, const BoardGeometry *geo) {
+    if (!ctx || !state || !geo) return;
+    int right_margin = ctx->surface.window_width - (geo->offset_x + geo->board_size);
+    int min_margin = geo->offset_x;
+    if (right_margin < min_margin) return;
+
+    int gap = geo->cell / 10;
+    if (gap < 2) gap = 2;
+    int text_scale = geo->cell / 20;
+    if (text_scale < 2) text_scale = 2;
+    int icon_cell = 7 * text_scale;
+    if (icon_cell < 8) icon_cell = 8;
+    int max_width = right_margin - 6;
+    int total_w = 2 * icon_cell + gap;
+    if (total_w > max_width && max_width > 0) {
+        icon_cell = (max_width - gap) / 2;
+    }
+    if (icon_cell < 8) return;
+
+    bool is_checkers = strncmp(state->match.mode, "checkers", 8) == 0;
+
+    int right_x = geo->offset_x + geo->board_size + gap;
+    int list_height = icon_cell * 8 + gap * 7;
+    int top_y = geo->offset_y;
+    int bottom_y = geo->offset_y + geo->board_size - list_height;
+
+    draw_capture_list(ctx, state, state->black_captures, state->black_captures_len,
+        right_x, top_y, icon_cell, gap, is_checkers, false);
+    draw_capture_list(ctx, state, state->white_captures, state->white_captures_len,
+        right_x, bottom_y, icon_cell, gap, is_checkers, true);
+}
+
 static void draw_board_labels(SDL_Renderer *renderer, int offset_x, int offset_y, int cell, int board_size, int window_width, int window_height) {
     int text_scale = cell / 20;
     if (text_scale < 2) {
@@ -378,9 +450,12 @@ static void draw_debug_overlay(SDL_Renderer *renderer, const GameState *state, i
 BoardGeometry render_compute_board_geometry(const RenderContext *ctx) {
     BoardGeometry geo = {0};
     int label_margin = 32;
+    int capture_margin = 0;
     int cell = 0;
-    for (int pass = 0; pass < 2; ++pass) {
-        int available_width = ctx->surface.window_width - 2 * label_margin;
+    for (int pass = 0; pass < 3; ++pass) {
+        int left_margin = label_margin;
+        int right_margin = label_margin + capture_margin;
+        int available_width = ctx->surface.window_width - left_margin - right_margin;
         int available_height = ctx->surface.window_height - 2 * label_margin;
         int base_size = (available_width > 0 && available_height > 0) ?
             (available_width < available_height ? available_width : available_height) :
@@ -393,15 +468,22 @@ BoardGeometry render_compute_board_geometry(const RenderContext *ctx) {
         int needed = glyph_h + 10;
         if (needed > label_margin) {
             label_margin = needed;
-        } else {
-            break;
         }
+        int gap = text_scale;
+        if (gap < 2) gap = 2;
+        capture_margin = (2 * glyph_h) + gap + 6;
     }
     if (cell < 1) {
         cell = 1;
     }
     int board_size = cell * 8; // enforce even cells
-    int offset_x = (ctx->surface.window_width - board_size) / 2;
+    int left_margin = label_margin;
+    int right_margin = label_margin + capture_margin;
+    int available_width = ctx->surface.window_width - left_margin - right_margin;
+    int offset_x = left_margin;
+    if (available_width > board_size) {
+        offset_x += (available_width - board_size) / 2;
+    }
     int offset_y = (ctx->surface.window_height - board_size) / 2;
     geo.offset_x = offset_x;
     geo.offset_y = offset_y;
@@ -453,6 +535,7 @@ void render_frame(RenderContext *ctx, GameState *state) {
 
     draw_board(ctx, &snapshot, geo.offset_x, geo.offset_y, geo.cell, now_ms);
     draw_board_labels(ctx->surface.renderer, geo.offset_x, geo.offset_y, geo.cell, geo.board_size, ctx->surface.window_width, ctx->surface.window_height);
+    draw_captures(ctx, &snapshot, &geo);
 
     if (snapshot.ui.show_main_menu) {
         ui_draw_main_menu(ctx, &snapshot);

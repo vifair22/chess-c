@@ -11,6 +11,10 @@ typedef struct GameSnapshot {
     LastMove last_move;
     VariantState variant;
     ChessRulesState chess;
+    char white_captures[32];
+    int white_captures_len;
+    char black_captures[32];
+    int black_captures_len;
 } GameSnapshot;
 
 bool game_is_white_piece(char piece) {
@@ -45,6 +49,18 @@ static bool game_allows_moves_ex(const GameState *state, bool allow_ai_turn) {
         }
     }
     return true;
+}
+
+static void record_capture(GameState *state, char capturer, char captured) {
+    if (!state || captured == '.') return;
+    bool white = game_is_white_piece(capturer);
+    char *list = white ? state->white_captures : state->black_captures;
+    int *len = white ? &state->white_captures_len : &state->black_captures_len;
+    int cap = (int)(sizeof(state->white_captures) / sizeof(state->white_captures[0]));
+    if (*len < cap) {
+        list[*len] = captured;
+        *len += 1;
+    }
 }
 
 static bool game_allows_moves(const GameState *state) {
@@ -84,6 +100,10 @@ static void snapshot_store(GameSnapshot *dst, const GameState *state) {
     dst->last_move = state->last_move;
     dst->variant = state->variant;
     dst->chess = state->chess;
+    dst->white_captures_len = state->white_captures_len;
+    memcpy(dst->white_captures, state->white_captures, sizeof(dst->white_captures));
+    dst->black_captures_len = state->black_captures_len;
+    memcpy(dst->black_captures, state->black_captures, sizeof(dst->black_captures));
 }
 
 static void snapshot_push(GameState *state) {
@@ -107,6 +127,10 @@ bool game_undo_ex(GameState *state, bool update_anim) {
     state->last_move = snap.last_move;
     state->variant = snap.variant;
     state->chess = snap.chess;
+    state->white_captures_len = snap.white_captures_len;
+    memcpy(state->white_captures, snap.white_captures, sizeof(state->white_captures));
+    state->black_captures_len = snap.black_captures_len;
+    memcpy(state->black_captures, snap.black_captures, sizeof(state->black_captures));
     if (update_anim) {
         BoardPos from = {-1, -1};
         BoardPos to = {-1, -1};
@@ -957,6 +981,8 @@ static void apply_checkers_move(GameState *state, int from_file, int from_rank, 
         int cap_file = (from_file + to_file) / 2;
         int cap_rank = (from_rank + to_rank) / 2;
         SquareState *cap = board_square_ptr(&state->board_state, cap_file, cap_rank);
+        char captured = cap->piece;
+        record_capture(state, moving, captured);
         cap->piece = '.';
         cap->flags = 0;
     }
@@ -1001,6 +1027,17 @@ static void apply_chess_move_common(GameState *state, BoardPos from, BoardPos to
     state->ui.undo_used = false;
     state->last_move.start = from;
     state->last_move.end = to;
+    char moving = game_piece_at(state, from.file, from.rank);
+    char captured = '.';
+    if (hint.flags & MOVE_EN_PASSANT) {
+        int cap_rank = to.rank + (moving == 'P' ? 1 : -1);
+        if (in_bounds(to.file, cap_rank)) {
+            captured = game_piece_at(state, to.file, cap_rank);
+        }
+    } else {
+        captured = game_piece_at(state, to.file, to.rank);
+    }
+    record_capture(state, moving, captured);
     apply_basic_move(state, from.file, from.rank, to.file, to.rank, hint, true);
     update_game_phase_chess(state);
     game_clear_move_flags(state);
@@ -1547,6 +1584,10 @@ void game_reset(GameState *state, const char *mode) {
     state->ai_timing_start = 0;
     state->autosave_last_turn = -1;
     state->autosave_terminal_saved = false;
+    state->white_captures_len = 0;
+    state->black_captures_len = 0;
+    memset(state->white_captures, 0, sizeof(state->white_captures));
+    memset(state->black_captures, 0, sizeof(state->black_captures));
 
     game_clear_move_flags(state);
     reset_position_history(state);
