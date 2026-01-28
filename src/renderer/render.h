@@ -52,6 +52,8 @@ typedef struct {
     int offset_y;
     int cell;
     int board_size;
+    int capture_margin;
+    int turn_margin;
 } BoardGeometry;
 
 bool render_init(RenderContext *ctx, const char *title, int width, int height);

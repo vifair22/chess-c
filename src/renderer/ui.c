@@ -37,11 +37,13 @@ typedef struct {
 
 static MenuLayout menu_layout(int window_w, int window_h) {
     MenuLayout layout;
-    int panel_w = window_w * 2 / 3;
+    int panel_w = window_w / 2;
     int panel_h = window_h * 2 / 3;
     layout.panel = center_rect(window_w, window_h, panel_w, panel_h);
     layout.scale = window_w / 300;
     if (layout.scale < 2) layout.scale = 2;
+    layout.scale = (layout.scale + 1) / 2;
+    if (layout.scale < 1) layout.scale = 1;
     layout.body_x = layout.panel.x + 24;
     layout.body_y = layout.panel.y + 24 + (8 * (layout.scale + 1));
     layout.line_height = (7 + 1) * layout.scale;
@@ -52,8 +54,10 @@ static MainMenuLayout main_menu_layout(int window_w, int window_h) {
     MainMenuLayout layout;
     layout.scale = window_w / 260;
     if (layout.scale < 3) layout.scale = 3;
+    layout.scale = (layout.scale + 1) / 2;
+    if (layout.scale < 1) layout.scale = 1;
     layout.line_height = (7 + 1) * layout.scale;
-    layout.button_w = window_w * 2 / 3;
+    layout.button_w = window_w / 2;
     if (layout.button_w < 220) layout.button_w = 220;
     layout.button_h = layout.line_height + 10;
     layout.button_x = (window_w - layout.button_w) / 2;
@@ -370,6 +374,8 @@ static void draw_button_lr(RenderContext *ctx, SDL_Rect rect, const char *left, 
 static void draw_main_menu_art(RenderContext *ctx, int window_w, int window_h) {
     int scale = window_w / 180;
     if (scale < 4) scale = 4;
+    scale = (scale + 1) / 2;
+    if (scale < 2) scale = 2;
     int text_w = measure_text_width("CHESS-C", scale);
     int x = (window_w - text_w) / 2;
     int y = window_h / 8;
@@ -448,12 +454,35 @@ static void ui_draw_save_modal(RenderContext *ctx, const GameState *state) {
     SDL_RenderFillRect(ctx->surface.renderer, &input);
     SDL_SetRenderDrawColor(ctx->surface.renderer, kPalette.panel_border.r, kPalette.panel_border.g, kPalette.panel_border.b, kPalette.panel_border.a);
     SDL_RenderDrawRect(ctx->surface.renderer, &input);
-    draw_text(ctx->surface.renderer, input.x + 6, input.y + 5, layout.scale, kPalette.panel_text, state->ui.save_name);
+    char save_buf[96];
+    snprintf(save_buf, sizeof(save_buf), "%s", state->ui.save_name);
+    if (((SDL_GetTicks() / 500) % 2) == 0) {
+        size_t len = strlen(save_buf);
+        if (len + 1 < sizeof(save_buf)) {
+            save_buf[len] = '_';
+            save_buf[len + 1] = '\0';
+        }
+    }
+    draw_text(ctx->surface.renderer, input.x + 6, input.y + 5, layout.scale, kPalette.panel_text, save_buf);
 
     y = input.y + input.h + layout.line_height;
     menu_vertical_buttons(&layout, buttons, 2, y);
-    draw_button(ctx, buttons[0], "SAVE", false, state->ui.menu_keyboard_active && state->ui.save_menu_index == 0,
-        layout.scale, mouse_x, mouse_y, allow_hover);
+    bool save_disabled = state->ui.save_len == 0;
+    bool save_focused = state->ui.menu_keyboard_active && state->ui.save_menu_index == 0;
+    draw_button(ctx, buttons[0], "SAVE", false, save_focused && !save_disabled,
+        layout.scale, mouse_x, mouse_y, allow_hover && !save_disabled);
+    if (save_disabled) {
+        SDL_Color dim = kPalette.panel_fill;
+        dim.a = 180;
+        SDL_SetRenderDrawColor(ctx->surface.renderer, dim.r, dim.g, dim.b, dim.a);
+        SDL_RenderFillRect(ctx->surface.renderer, &buttons[0]);
+        SDL_SetRenderDrawColor(ctx->surface.renderer, kPalette.panel_border.r, kPalette.panel_border.g, kPalette.panel_border.b, kPalette.panel_border.a);
+        SDL_RenderDrawRect(ctx->surface.renderer, &buttons[0]);
+        int text_w = measure_text_width("SAVE", layout.scale);
+        int text_x = buttons[0].x + (buttons[0].w - text_w) / 2;
+        int text_y = buttons[0].y + (buttons[0].h - (7 + 1) * layout.scale) / 2;
+        draw_text(ctx->surface.renderer, text_x, text_y, layout.scale, kPalette.label_text, "SAVE");
+    }
     draw_button(ctx, buttons[1], "CANCEL", false, state->ui.menu_keyboard_active && state->ui.save_menu_index == 1,
         layout.scale, mouse_x, mouse_y, allow_hover);
 }
@@ -882,8 +911,11 @@ int ui_handle_save_modal_click(GameState *state, int mouse_x, int mouse_y, int w
     y = input.y + input.h + layout.line_height;
     menu_vertical_buttons(&layout, buttons, 2, y);
     if (point_in_rect(mouse_x, mouse_y, buttons[0])) {
-        state->ui.save_menu_index = 0;
-        return 1; // save
+        if (state->ui.save_len > 0) {
+            state->ui.save_menu_index = 0;
+            return 1; // save
+        }
+        return 0;
     }
     if (point_in_rect(mouse_x, mouse_y, buttons[1])) {
         state->ui.save_menu_index = 1;

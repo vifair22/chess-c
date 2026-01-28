@@ -107,7 +107,7 @@ int main(int argc, char **argv) {
             return 1;
         }
     } else {
-        if (!render_init(&render, "Chess C", 800, 800)) {
+        if (!render_init(&render, "Chess C", 1280, 960)) {
             return 1;
         }
         render_ready = true;
