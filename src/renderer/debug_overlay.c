@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 
+#include "ai/ai.h"
 #include "renderer/draw.h"
 #include "renderer/palette.h"
 
@@ -45,12 +46,17 @@ void debug_overlay_render(RenderContext *ctx, const GameState *state) {
     const char *ui_state = state->ui.show_main_menu ? "main menu" :
                            state->ui.show_pause_menu ? "pause menu" : "playing";
 
+    AiWorkerStatus ai_status = {0};
+    bool ai_worker_ok = ai_get_worker_status(&ai_status);
+
     snprintf(body, sizeof(body),
         "MODE: %s\n"
         "UI: %s\n"
         "GAME: %s\n"
         "TURN: %d\n"
         "AI: %s D%d\n"
+        "AI WORKER: %s%s%s\n"
+        "AI TIME: %.2f ms\n"
         "TIME: %.0fs\n"
         "TPS: %.1f (%.2f ms)",
         state->match.mode,
@@ -60,6 +66,10 @@ void debug_overlay_render(RenderContext *ctx, const GameState *state) {
         state->ai.side == AI_SIDE_WHITE ? "WHITE" :
         state->ai.side == AI_SIDE_BLACK ? "BLACK" : "OFF",
         state->ai.depth,
+        ai_worker_ok && ai_status.ready ? (ai_status.busy ? "BUSY" : "IDLE") : "DISABLED",
+        ai_worker_ok && ai_status.ready && ai_status.has_job ? " (job)" : "",
+        ai_worker_ok && ai_status.ready && ai_status.has_result ? " (result)" : "",
+        ai_status.last_compute_ms,
         state->match.game_time.total_seconds,
         fps,
         ms);

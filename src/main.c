@@ -58,6 +58,7 @@ int main(int argc, char **argv) {
     bool replay_hold_active = false;
     Uint32 replay_hold_until = 0;
     bool text_input_active = false;
+    bool ai_worker_ready = false;
 
     bool saw_error = false;
     for (int i = 1; i < argc; ++i) {
@@ -120,7 +121,6 @@ int main(int argc, char **argv) {
         }
         return 1;
     }
-
     ensure_replay_dir();
 
     // Prepare auto-record path for live games (recording begins on game start, not in menus).
@@ -201,6 +201,11 @@ int main(int argc, char **argv) {
         }
         game_destroy(&game);
         return ok ? 0 : 1;
+    }
+
+    ai_worker_ready = ai_worker_init();
+    if (!ai_worker_ready) {
+        SDL_Log("AI worker unavailable; falling back to synchronous AI.");
     }
 
     // If replay provided (interactive), seed game and play events during loop (with timing).
@@ -300,10 +305,56 @@ int main(int argc, char **argv) {
         }
 
         if (!replay_path) {
-            bool can_ai_move = !render_ready || !render.anim.active;
-            if (can_ai_move && SDL_LockMutex(game.mutex) == 0) {
-                ai_make_move(&game);
-                SDL_UnlockMutex(game.mutex);
+            if (ai_worker_ready) {
+                bool can_ai_move = !render_ready || !render.anim.active;
+                if (can_ai_move && SDL_LockMutex(game.mutex) == 0) {
+                    if (game.ai.side != AI_SIDE_NONE &&
+                        !game.ui.show_main_menu &&
+                        !game.ui.show_pause_menu &&
+                        !game_is_terminal_phase(game.match.phase)) {
+                        bool ai_is_white = game.ai.side == AI_SIDE_WHITE;
+                        if (game.match.white_to_move == ai_is_white) {
+                            ai_request_move(&game);
+                        }
+                    }
+                    SDL_UnlockMutex(game.mutex);
+                }
+
+                AiResult ai_result = {0};
+                if (ai_poll_move(&ai_result)) {
+                    if (SDL_LockMutex(game.mutex) == 0) {
+                        bool ai_is_white = game.ai.side == AI_SIDE_WHITE;
+                        bool ai_turn = (game.ai.side != AI_SIDE_NONE) && (game.match.white_to_move == ai_is_white);
+                        uint32_t key = ai_position_key(&game);
+                        if (ai_result.valid &&
+                            ai_turn &&
+                            ai_result.turn_number == game.match.turn_number &&
+                            ai_result.position_key == key &&
+                            !game.ui.show_main_menu &&
+                            !game.ui.show_pause_menu &&
+                            !game_is_terminal_phase(game.match.phase)) {
+                            if (game_apply_move(&game, ai_result.from, ai_result.to, ai_result.hint)) {
+                                if (replay_global_recording()) {
+                                    char promo = '\0';
+                                    if ((ai_result.hint.flags & MOVE_PROMOTION) && ai_result.hint.promotion) {
+                                        promo = ai_result.hint.promotion;
+                                    }
+                                    replay_recorder_record_move(replay_global_recorder(), SDL_GetTicks(),
+                                        ai_result.from.file, ai_result.from.rank,
+                                        ai_result.to.file, ai_result.to.rank,
+                                        promo);
+                                }
+                            }
+                        }
+                        SDL_UnlockMutex(game.mutex);
+                    }
+                }
+            } else {
+                bool can_ai_move = !render_ready || !render.anim.active;
+                if (can_ai_move && SDL_LockMutex(game.mutex) == 0) {
+                    ai_make_move(&game);
+                    SDL_UnlockMutex(game.mutex);
+                }
             }
         }
 
@@ -406,6 +457,9 @@ int main(int argc, char **argv) {
         replay_global_stop();
     }
 
+    if (ai_worker_ready) {
+        ai_worker_shutdown();
+    }
     game_destroy(&game);
     if (render_ready) {
         render_shutdown(&render);
