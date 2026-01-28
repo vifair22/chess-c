@@ -11,6 +11,9 @@
 #include "renderer/debug_overlay.h"
 #include "renderer/ui.h"
 
+static int measure_text_width_simple(const char *text, int scale);
+static int measure_text_lines(const char *text);
+
 static SDL_Texture *create_texture_from_sprite(SDL_Renderer *renderer, const PieceSprite *sprite) {
     if (!sprite || !renderer) {
         return NULL;
@@ -294,7 +297,6 @@ static void draw_board(RenderContext *ctx, const GameState *state, int offset_x,
         t = t * t * (3.0f - 2.0f * t); // smoothstep
         float x = ctx->anim.from_px.x + (ctx->anim.to_px.x - ctx->anim.from_px.x) * t;
         float y = ctx->anim.from_px.y + (ctx->anim.to_px.y - ctx->anim.from_px.y) * t;
-        bool is_checkers = strncmp(state->match.mode, "checkers", 8) == 0;
         SDL_Texture *tex = texture_for_piece(ctx, ctx->anim.piece, is_checkers);
         if (!tex) {
             SDL_Log("anim overlay skipped: no texture for piece %c", ctx->anim.piece);
@@ -403,6 +405,15 @@ static int measure_text_width_simple(const char *text, int scale) {
     }
     if (line_width > max_width) max_width = line_width;
     return max_width;
+}
+
+static int measure_text_lines(const char *text) {
+    if (!text || !*text) return 0;
+    int lines = 1;
+    for (const char *p = text; *p; ++p) {
+        if (*p == '\n') lines++;
+    }
+    return lines;
 }
 
 static void draw_turn_indicator(RenderContext *ctx, const GameState *state, GameState *ui_state, const BoardGeometry *geo) {
@@ -552,7 +563,7 @@ static void draw_debug_overlay(SDL_Renderer *renderer, const GameState *state, i
         fps,
         ms);
 
-    int text_width = measure_text_width(body, scale);
+    int text_width = measure_text_width_simple(body, scale);
     int lines = measure_text_lines(body);
     int line_height = (7 + 1) * scale;
     int text_height = lines * line_height;
@@ -626,7 +637,7 @@ void render_frame(RenderContext *ctx, GameState *state) {
     if (!state || !state->mutex) {
         return;
     }
-    GameState snapshot = {0};
+    static GameState snapshot;
 
     if (SDL_LockMutex(state->mutex) != 0) {
         SDL_Log("SDL_LockMutex failed: %s", SDL_GetError());

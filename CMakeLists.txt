@@ -77,6 +77,9 @@ add_executable(chess-c
 
 target_include_directories(chess-c PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_definitions(chess-c PRIVATE $<$<CONFIG:Debug>:DEBUG>)
+if (MSVC)
+    target_compile_options(chess-c PRIVATE $<$<CONFIG:Debug>:/analyze>)
+endif()
 target_link_libraries(chess-c PRIVATE ${SDL2_LIB_TARGET} ${SDL2_MAIN_TARGET})
 
 add_subdirectory(test)

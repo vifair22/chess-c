@@ -958,7 +958,9 @@ int ui_handle_load_menu_click(GameState *state, int mouse_x, int mouse_y, int wi
                 return 1;
             }
         }
-        y = buttons[visible - 1].y + buttons[visible - 1].h + layout.line_height;
+        if (visible > 0) {
+            y = buttons[visible - 1].y + buttons[visible - 1].h + layout.line_height;
+        }
     } else {
         y += layout.line_height * 2;
     }

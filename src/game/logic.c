@@ -4,7 +4,16 @@
 #include <string.h>
 #include <ctype.h>
 
+#if defined(_MSC_VER)
+#define THREAD_LOCAL __declspec(thread)
+#else
+#define THREAD_LOCAL _Thread_local
+#endif
+
 #define GAME_SNAPSHOT_MAX 256
+
+static THREAD_LOCAL GameState g_logic_tmp_primary;
+static THREAD_LOCAL GameState g_logic_tmp_secondary;
 
 typedef struct GameSnapshot {
     BoardState board_state;
@@ -72,10 +81,10 @@ static void record_capture(GameState *state, char capturer, char captured) {
 
 static bool can_piece_move_to(const GameState *state, BoardPos from, BoardPos to) {
     if (!state) return false;
-    GameState tmp;
-    copy_state_minimal(&tmp, state);
-    game_eval_legal_moves(&tmp, from.file, from.rank);
-    MoveHint hint = tmp.moves.legal_moves[to.rank][to.file];
+    GameState *tmp = &g_logic_tmp_primary;
+    copy_state_minimal(tmp, state);
+    game_eval_legal_moves(tmp, from.file, from.rank);
+    MoveHint hint = tmp->moves.legal_moves[to.rank][to.file];
     return (hint.flags & MOVE_LEGAL) != 0;
 }
 
@@ -157,13 +166,13 @@ static void build_san(const GameState *state, BoardPos from, BoardPos to, MoveHi
             }
         }
     }
-    GameState tmp;
-    copy_state_minimal(&tmp, state);
-    apply_basic_move(&tmp, from.file, from.rank, to.file, to.rank, hint, false);
-    update_game_phase_chess(&tmp);
-    if (strncmp(tmp.match.phase, "checkmate", 9) == 0) {
+    GameState *tmp = &g_logic_tmp_primary;
+    copy_state_minimal(tmp, state);
+    apply_basic_move(tmp, from.file, from.rank, to.file, to.rank, hint, false);
+    update_game_phase_chess(tmp);
+    if (strncmp(tmp->match.phase, "checkmate", 9) == 0) {
         strncat(out, "#", cap - strlen(out) - 1);
-    } else if (game_is_in_check(&tmp, tmp.match.white_to_move)) {
+    } else if (game_is_in_check(tmp, tmp->match.white_to_move)) {
         strncat(out, "+", cap - strlen(out) - 1);
     }
 }
@@ -244,18 +253,18 @@ bool game_undo_ex(GameState *state, bool update_anim) {
     }
     BoardState current_board = state->board_state;
     LastMove anim_keep = state->last_move;
-    GameSnapshot snap = state->snapshots[--state->snapshot_len];
-    state->board_state = snap.board_state;
-    state->match = snap.match;
-    state->last_move = snap.last_move;
-    state->variant = snap.variant;
-    state->chess = snap.chess;
-    state->white_captures_len = snap.white_captures_len;
-    memcpy(state->white_captures, snap.white_captures, sizeof(state->white_captures));
-    state->black_captures_len = snap.black_captures_len;
-    memcpy(state->black_captures, snap.black_captures, sizeof(state->black_captures));
-    state->move_history_len = snap.move_history_len;
-    memcpy(state->move_history, snap.move_history, sizeof(state->move_history));
+    GameSnapshot *snap = &state->snapshots[--state->snapshot_len];
+    state->board_state = snap->board_state;
+    state->match = snap->match;
+    state->last_move = snap->last_move;
+    state->variant = snap->variant;
+    state->chess = snap->chess;
+    state->white_captures_len = snap->white_captures_len;
+    memcpy(state->white_captures, snap->white_captures, sizeof(state->white_captures));
+    state->black_captures_len = snap->black_captures_len;
+    memcpy(state->black_captures, snap->black_captures, sizeof(state->black_captures));
+    state->move_history_len = snap->move_history_len;
+    memcpy(state->move_history, snap->move_history, sizeof(state->move_history));
     if (update_anim) {
         BoardPos from = {-1, -1};
         BoardPos to = {-1, -1};
@@ -263,7 +272,7 @@ bool game_undo_ex(GameState *state, bool update_anim) {
         for (int r = 0; r < 8; ++r) {
             for (int f = 0; f < 8; ++f) {
                 char cur = current_board.squares[r][f].piece;
-                char prev = snap.board_state.squares[r][f].piece;
+                char prev = snap->board_state.squares[r][f].piece;
                 if (cur != '.' && prev == '.') {
                     from = (BoardPos){f, r};
                     from_piece = cur;
@@ -277,7 +286,7 @@ bool game_undo_ex(GameState *state, bool update_anim) {
             for (int r = 0; r < 8; ++r) {
                 for (int f = 0; f < 8; ++f) {
                     char cur = current_board.squares[r][f].piece;
-                    char prev = snap.board_state.squares[r][f].piece;
+                    char prev = snap->board_state.squares[r][f].piece;
                     if (cur == '.' && prev != '.') {
                         if ((from_white && game_is_white_piece(prev)) || (!from_white && game_is_black_piece(prev))) {
                             to = (BoardPos){f, r};
@@ -823,26 +832,26 @@ static bool mark_check_path(GameState *state, int kf, int kr, bool by_white) {
 }
 
 static bool has_any_legal_move(const GameState *state, bool white_to_move) {
-    GameState tmp;
-    copy_state_minimal(&tmp, state);
-    tmp.match.white_to_move = white_to_move;
+    GameState *tmp = &g_logic_tmp_primary;
+    copy_state_minimal(tmp, state);
+    tmp->match.white_to_move = white_to_move;
 
     for (int rank = 0; rank < 8; ++rank) {
         for (int file = 0; file < 8; ++file) {
-            char piece = game_piece_at(&tmp, file, rank);
+            char piece = game_piece_at(tmp, file, rank);
             if (piece == '.') continue;
             if (white_to_move ? !game_is_white_piece(piece) : !game_is_black_piece(piece)) {
                 continue;
             }
-            game_eval_legal_moves(&tmp, file, rank);
+            game_eval_legal_moves(tmp, file, rank);
             for (int tr = 0; tr < 8; ++tr) {
                 for (int tf = 0; tf < 8; ++tf) {
-                    if (tmp.moves.legal_moves[tr][tf].flags & MOVE_LEGAL) {
+                    if (tmp->moves.legal_moves[tr][tf].flags & MOVE_LEGAL) {
                         return true;
                     }
                 }
             }
-            game_clear_move_flags(&tmp);
+            game_clear_move_flags(tmp);
         }
     }
     return false;
@@ -1445,11 +1454,11 @@ static void add_move_if_legal(GameState *state, int from_file, int from_rank, in
     if (target_piece == (moving_white ? 'k' : 'K')) {
         return; // cannot capture the enemy king
     }
-    GameState tmp;
-    copy_state_minimal(&tmp, state);
-    apply_basic_move(&tmp, from_file, from_rank, to_file, to_rank, hint, false);
-    BoardPos king = find_king(&tmp, moving_white);
-    if (king.file == -1 || game_square_attacked_by(&tmp, king.file, king.rank, !moving_white)) {
+    GameState *tmp = &g_logic_tmp_secondary;
+    copy_state_minimal(tmp, state);
+    apply_basic_move(tmp, from_file, from_rank, to_file, to_rank, hint, false);
+    BoardPos king = find_king(tmp, moving_white);
+    if (king.file == -1 || game_square_attacked_by(tmp, king.file, king.rank, !moving_white)) {
         return; // leaves or puts own king in check
     }
 

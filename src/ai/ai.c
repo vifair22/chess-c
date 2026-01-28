@@ -1,6 +1,7 @@
 #include "ai/ai.h"
 
 #include <SDL.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "save/replay.h"
@@ -11,6 +12,13 @@
 #define AI_TIME_LIMIT_MS 10000
 #define AI_TIME_MAX_DEPTH 32
 
+#if defined(_MSC_VER)
+#define THREAD_LOCAL __declspec(thread)
+#else
+#define THREAD_LOCAL _Thread_local
+#endif
+
+#define AI_BUF_PLY (AI_TIME_MAX_DEPTH + 8)
 
 
 typedef struct {
@@ -41,6 +49,27 @@ static uint32_t g_ai_deadline_ms = 0;
 static bool g_ai_abort = false;
 static uint64_t g_ai_nodes = 0;
 static int g_ai_depth_reached = 0;
+
+static THREAD_LOCAL AiMove g_ai_move_buffer[AI_BUF_PLY][AI_MAX_MOVES];
+static THREAD_LOCAL GameState g_ai_state_buffer[AI_BUF_PLY];
+
+static AiMove *ai_get_move_buf(int ply, bool *out_heap) {
+    if (out_heap) *out_heap = false;
+    if (ply >= 0 && ply < AI_BUF_PLY) {
+        return g_ai_move_buffer[ply];
+    }
+    if (out_heap) *out_heap = true;
+    return (AiMove *)malloc(sizeof(AiMove) * AI_MAX_MOVES);
+}
+
+static GameState *ai_get_state_buf(int ply, bool *out_heap) {
+    if (out_heap) *out_heap = false;
+    if (ply >= 0 && ply < AI_BUF_PLY) {
+        return &g_ai_state_buffer[ply];
+    }
+    if (out_heap) *out_heap = true;
+    return (GameState *)malloc(sizeof(GameState));
+}
 
 static inline bool ai_time_up(void) {
     return g_ai_deadline_ms != 0 && SDL_GetTicks() >= g_ai_deadline_ms;
@@ -370,7 +399,7 @@ static int terminal_score(GameState *state, int depth) {
     return 0; // stalemate or draw
 }
 
-static int quiescence(GameState *state, int alpha, int beta) {
+static int quiescence(GameState *state, int alpha, int beta, int ply) {
     g_ai_nodes++;
     if (g_ai_abort || ai_time_up()) {
         g_ai_abort = true;
@@ -380,9 +409,21 @@ static int quiescence(GameState *state, int alpha, int beta) {
     if (stand >= beta) return beta;
     if (stand > alpha) alpha = stand;
 
-    AiMove moves[AI_MAX_MOVES];
+    bool heap_moves = false;
+    bool heap_state = false;
+    AiMove *moves = ai_get_move_buf(ply, &heap_moves);
+    GameState *next = ai_get_state_buf(ply, &heap_state);
+    if (!moves || !next) {
+        if (heap_moves) free(moves);
+        if (heap_state) free(next);
+        return stand;
+    }
     int count = generate_moves(state, moves, AI_MAX_MOVES);
-    if (count <= 0) return stand;
+    if (count <= 0) {
+        if (heap_moves) free(moves);
+        if (heap_state) free(next);
+        return stand;
+    }
 
     ai_order_moves(state, moves, count, NULL);
 
@@ -390,20 +431,25 @@ static int quiescence(GameState *state, int alpha, int beta) {
         if (!ai_move_is_capture(state, &moves[i])) {
             continue;
         }
-        GameState next;
-        ai_clone_state(&next, state);
-        if (!game_apply_move(&next, moves[i].from, moves[i].to, moves[i].hint)) {
+        ai_clone_state(next, state);
+        if (!game_apply_move(next, moves[i].from, moves[i].to, moves[i].hint)) {
             continue;
         }
-        int score = -quiescence(&next, -beta, -alpha);
-        if (score >= beta) return beta;
+        int score = -quiescence(next, -beta, -alpha, ply + 1);
+        if (score >= beta) {
+            if (heap_moves) free(moves);
+            if (heap_state) free(next);
+            return beta;
+        }
         if (score > alpha) alpha = score;
     }
+    if (heap_moves) free(moves);
+    if (heap_state) free(next);
     return alpha;
 }
 
 
-static int negamax(GameState *state, int depth, int alpha, int beta, AiMove *out_best) {
+static int negamax(GameState *state, int depth, int alpha, int beta, int ply, AiMove *out_best) {
     g_ai_nodes++;
     if (g_ai_abort || ai_time_up()) {
         g_ai_abort = true;
@@ -421,15 +467,28 @@ static int negamax(GameState *state, int depth, int alpha, int beta, AiMove *out
         return tt_score;
     }
 
-    AiMove moves[AI_MAX_MOVES];
+    bool heap_moves = false;
+    bool heap_state = false;
+    AiMove *moves = ai_get_move_buf(ply, &heap_moves);
+    GameState *next = ai_get_state_buf(ply, &heap_state);
+    if (!moves || !next) {
+        if (heap_moves) free(moves);
+        if (heap_state) free(next);
+        return evaluate(state);
+    }
     int count = generate_moves(state, moves, AI_MAX_MOVES);
 
     if (count == 0) {
+        if (heap_moves) free(moves);
+        if (heap_state) free(next);
         return terminal_score(state, depth);
     }
     if (depth == 0) {
         bool checkers = strncmp(state->match.mode, "checkers", 8) == 0;
-        return checkers ? evaluate(state) : quiescence(state, alpha, beta);
+        int score = checkers ? evaluate(state) : quiescence(state, alpha, beta, ply + 1);
+        if (heap_moves) free(moves);
+        if (heap_state) free(next);
+        return score;
     }
 
     if (ai_move_valid(&tt_best)) {
@@ -443,14 +502,13 @@ static int negamax(GameState *state, int depth, int alpha, int beta, AiMove *out
     bool have_best = false;
 
     for (int i = 0; i < count; ++i) {
-        GameState next;
-        ai_clone_state(&next, state);
-        if (!game_apply_move(&next, moves[i].from, moves[i].to, moves[i].hint)) {
+        ai_clone_state(next, state);
+        if (!game_apply_move(next, moves[i].from, moves[i].to, moves[i].hint)) {
             continue;
         }
-        bool same_turn = next.match.white_to_move == state->match.white_to_move;
-        int score = same_turn ? negamax(&next, depth - 1, alpha, beta, NULL)
-                              : -negamax(&next, depth - 1, -beta, -alpha, NULL);
+        bool same_turn = next->match.white_to_move == state->match.white_to_move;
+        int score = same_turn ? negamax(next, depth - 1, alpha, beta, ply + 1, NULL)
+                              : -negamax(next, depth - 1, -beta, -alpha, ply + 1, NULL);
         if (score > best) {
             best = score;
             best_move = moves[i];
@@ -474,6 +532,8 @@ static int negamax(GameState *state, int depth, int alpha, int beta, AiMove *out
         ai_tt_store(key, depth, best, flag, &best_move);
     }
 
+    if (heap_moves) free(moves);
+    if (heap_state) free(next);
     return best;
 }
 
@@ -516,7 +576,7 @@ static bool ai_compute_move(GameState *state, int depth, AiMove *out_move, bool 
         if (timed && ai_time_up()) break;
         if (track_stage) ai_worker_set_stage(AI_STAGE_SEARCH);
         AiMove iter_best = {0};
-        int score = negamax(state, d, -AI_INF, AI_INF, &iter_best);
+        int score = negamax(state, d, -AI_INF, AI_INF, 0, &iter_best);
         (void)score;
         if (g_ai_abort) break;
         if (ai_move_valid(&iter_best)) {
@@ -577,7 +637,7 @@ static int ai_worker_thread(void *userdata) {
             SDL_UnlockMutex(worker->mutex);
             break;
         }
-        AiJob job = worker->job;
+        AiJob *job = &worker->job;
         worker->has_job = false;
         worker->busy = true;
         worker->stage = AI_STAGE_GENERATE;
@@ -586,7 +646,7 @@ static int ai_worker_thread(void *userdata) {
 
         uint64_t start = worker->compute_start_counter;
         AiMove move = {0};
-        bool ok = ai_compute_move(&job.state, job.depth, &move, true);
+        bool ok = ai_compute_move(&job->state, job->depth, &move, true);
         uint64_t end = SDL_GetPerformanceCounter();
         double freq = worker->compute_freq;
         double elapsed_ms = freq > 0.0 ? ((double)(end - start) * 1000.0 / freq) : 0.0;
@@ -595,8 +655,8 @@ static int ai_worker_thread(void *userdata) {
         worker->result.from = ok ? move.from : (BoardPos){-1, -1};
         worker->result.to = ok ? move.to : (BoardPos){-1, -1};
         worker->result.hint = ok ? move.hint : (MoveHint){0};
-        worker->result.turn_number = job.turn_number;
-        worker->result.position_key = job.position_key;
+        worker->result.turn_number = job->turn_number;
+        worker->result.position_key = job->position_key;
         worker->result.valid = ok;
         worker->has_result = true;
         worker->busy = false;

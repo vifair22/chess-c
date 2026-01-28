@@ -7,6 +7,8 @@
 
 #define REPLAY_VERSION "CHESSC_REPLAY_V1"
 
+static int parse_square_list(const char *list, int8_t *files, int8_t *ranks, int max);
+
 static void ensure_capacity(ReplayRecorder *rec) {
     if (rec->event_count + 1 <= rec->event_capacity) return;
     size_t new_cap = rec->event_capacity ? rec->event_capacity * 2 : 64;

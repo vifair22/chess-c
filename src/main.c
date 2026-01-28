@@ -98,7 +98,7 @@ int main(int argc, char **argv) {
     }
 
     RenderContext render = {0};
-    GameState game = {0};
+    static GameState game = {0};
     bool render_ready = false;
 
     if (headless) {
