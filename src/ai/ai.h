@@ -28,6 +28,8 @@ typedef struct {
     uint32_t job_position_key;
     double last_compute_ms;
     AiWorkerStage stage;
+    uint64_t last_nodes;
+    int last_depth;
 } AiWorkerStatus;
 
 bool ai_worker_init(void);

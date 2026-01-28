@@ -62,14 +62,23 @@ void debug_overlay_render(RenderContext *ctx, const GameState *state) {
         ai_stage = "DISABLED";
     }
 
+    const char *ai_mode = (state->ai.depth >= 9) ? "TIME 10S" : "DEPTH";
+    double ai_secs = (ai_worker_ok && ai_status.ready && ai_status.last_compute_ms > 0.0)
+        ? ai_status.last_compute_ms / 1000.0 : 0.0;
+    double ai_nps = (ai_secs > 0.0) ? (double)ai_status.last_nodes / ai_secs : 0.0;
+
     snprintf(body, sizeof(body),
         "MODE: %s\n"
         "UI: %s\n"
         "GAME: %s\n"
         "TURN: %d\n"
-        "AI: %s D%d\n"
+        "AI: %s D%d (%s)\n"
         "AI WORKER: %s (%s)%s%s\n"
-        "AI TIME: %.2f ms\n"
+        "AI JOB: T%d KEY %08X\n"
+        "AI DEPTH: %d\n"
+        "AI NODES: %llu\n"
+        "AI NPS: %.0f\n"
+        "AI LAST: %.2f ms\n"
         "TIME: %.0fs\n"
         "TPS: %.1f (%.2f ms)",
         state->match.mode,
@@ -79,10 +88,16 @@ void debug_overlay_render(RenderContext *ctx, const GameState *state) {
         state->ai.side == AI_SIDE_WHITE ? "WHITE" :
         state->ai.side == AI_SIDE_BLACK ? "BLACK" : "OFF",
         state->ai.depth,
+        ai_mode,
         ai_worker_ok && ai_status.ready ? (ai_status.busy ? "BUSY" : "IDLE") : "DISABLED",
         ai_stage,
         ai_worker_ok && ai_status.ready && ai_status.has_job ? " (job)" : "",
         ai_worker_ok && ai_status.ready && ai_status.has_result ? " (result)" : "",
+        ai_worker_ok ? ai_status.job_turn_number : -1,
+        ai_worker_ok ? ai_status.job_position_key : 0,
+        ai_status.last_depth,
+        (unsigned long long)ai_status.last_nodes,
+        ai_nps,
         state->ai_last_move_ms,
         state->match.game_time.total_seconds,
         fps,
@@ -104,4 +119,3 @@ void debug_overlay_render(RenderContext *ctx, const GameState *state) {
 
     draw_text(ctx->surface.renderer, box.x + padding, box.y + padding, scale, kPalette.panel_text, body);
 }
-

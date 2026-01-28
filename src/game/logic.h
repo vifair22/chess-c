@@ -139,7 +139,7 @@ typedef enum {
 
 typedef struct {
     AiSide side;
-    int depth; // search depth (1-4 recommended)
+    int depth; // search depth (1-8), 9 = timed (10s) search
 } AiSettings;
 
 typedef struct {

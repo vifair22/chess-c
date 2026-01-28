@@ -186,9 +186,12 @@ void keyboard_handle_event(GameState *game, const SDL_Event *event) {
                 }
                 if (idx == 1) idx = 0;
                 else if (idx == 0) idx = 1;
-                else if (idx >= 3 && idx <= 10) {
-                    int row_start = (idx <= 6) ? 3 : 7;
-                    int row_end = (idx <= 6) ? 6 : 10;
+                else if (idx >= 3 && idx <= 11) {
+                    const int cols = 3;
+                    int rel = idx - 3;
+                    int row_start = 3 + (rel / cols) * cols;
+                    int row_end = row_start + cols - 1;
+                    if (row_end > 11) row_end = 11;
                     if (idx == row_start) idx = row_end;
                     else idx = clamp_int(idx - 1, row_start, row_end);
                 }
@@ -203,9 +206,12 @@ void keyboard_handle_event(GameState *game, const SDL_Event *event) {
                 }
                 if (idx == 0) idx = 1;
                 else if (idx == 1) idx = 0;
-                else if (idx >= 3 && idx <= 10) {
-                    int row_start = (idx <= 6) ? 3 : 7;
-                    int row_end = (idx <= 6) ? 6 : 10;
+                else if (idx >= 3 && idx <= 11) {
+                    const int cols = 3;
+                    int rel = idx - 3;
+                    int row_start = 3 + (rel / cols) * cols;
+                    int row_end = row_start + cols - 1;
+                    if (row_end > 11) row_end = 11;
                     if (idx == row_end) idx = row_start;
                     else idx = clamp_int(idx + 1, row_start, row_end);
                 }
@@ -218,20 +224,22 @@ void keyboard_handle_event(GameState *game, const SDL_Event *event) {
                     game->ui.menu_mouse_active = false;
                     goto cleanup;
                 }
-                if (idx == 12) {
-                    idx = 11;
-                } else if (idx == 11) {
-                    idx = 7;
-                } else if (idx >= 7 && idx <= 10) {
-                    idx -= 4;
-                } else if (idx >= 3 && idx <= 6) {
+                if (idx == 13) {
+                    idx = 12;
+                } else if (idx == 12) {
+                    idx = 9;
+                } else if (idx >= 9 && idx <= 11) {
+                    idx -= 3;
+                } else if (idx >= 6 && idx <= 8) {
+                    idx -= 3;
+                } else if (idx >= 3 && idx <= 5) {
                     idx = 2;
                 } else if (idx == 2) {
                     idx = 0;
                 } else if (idx == 1) {
                     idx = 0;
                 }
-                game->ui.new_menu_index = clamp_int(idx, 0, 12);
+                game->ui.new_menu_index = clamp_int(idx, 0, 13);
                 goto cleanup;
             }
             if (key == SDLK_DOWN) {
@@ -244,14 +252,16 @@ void keyboard_handle_event(GameState *game, const SDL_Event *event) {
                     idx = 2;
                 } else if (idx == 2) {
                     idx = 3;
-                } else if (idx >= 3 && idx <= 6) {
-                    idx += 4;
-                } else if (idx >= 7 && idx <= 10) {
-                    idx = 11;
-                } else if (idx == 11) {
+                } else if (idx >= 3 && idx <= 5) {
+                    idx += 3;
+                } else if (idx >= 6 && idx <= 8) {
+                    idx += 3;
+                } else if (idx >= 9 && idx <= 11) {
                     idx = 12;
+                } else if (idx == 12) {
+                    idx = 13;
                 }
-                game->ui.new_menu_index = clamp_int(idx, 0, 12);
+                game->ui.new_menu_index = clamp_int(idx, 0, 13);
                 goto cleanup;
             }
             if (key == SDLK_ESCAPE) {
@@ -283,15 +293,16 @@ void keyboard_handle_event(GameState *game, const SDL_Event *event) {
                     case 8:
                     case 9:
                     case 10:
+                    case 11:
                         game->ai.depth = (idx - 2);
                         break;
-                    case 11:
+                    case 12:
                         replay_global_stop();
                         replay_global_start(game, SDL_GetTicks());
                         game->ui.show_main_menu = false;
                         game->ui.show_new_menu = false;
                         break;
-                    case 12:
+                    case 13:
                         game->ui.show_new_menu = false;
                         break;
                     default:
@@ -323,6 +334,7 @@ void keyboard_handle_event(GameState *game, const SDL_Event *event) {
                 case SDLK_6:
                 case SDLK_7:
                 case SDLK_8:
+                case SDLK_9:
                     game->ai.depth = (int)(key - SDLK_0);
                     goto cleanup;
                 default:

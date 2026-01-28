@@ -8,6 +8,8 @@
 #define AI_MAX_MOVES 256
 #define AI_INF 1000000
 #define AI_MATE 100000
+#define AI_TIME_LIMIT_MS 10000
+#define AI_TIME_MAX_DEPTH 32
 
 
 
@@ -35,6 +37,14 @@ typedef struct {
 } AiTtEntry;
 
 static AiTtEntry g_ai_tt[AI_TT_SIZE];
+static uint32_t g_ai_deadline_ms = 0;
+static bool g_ai_abort = false;
+static uint64_t g_ai_nodes = 0;
+static int g_ai_depth_reached = 0;
+
+static inline bool ai_time_up(void) {
+    return g_ai_deadline_ms != 0 && SDL_GetTicks() >= g_ai_deadline_ms;
+}
 
 typedef struct {
     GameState state;
@@ -55,6 +65,8 @@ typedef struct {
     AiResult result;
     double last_compute_ms;
     double last_reported_ms;
+    uint64_t last_nodes;
+    int last_depth;
     uint64_t compute_start_counter;
     double compute_freq;
     AiWorkerStage stage;
@@ -359,6 +371,11 @@ static int terminal_score(GameState *state, int depth) {
 }
 
 static int quiescence(GameState *state, int alpha, int beta) {
+    g_ai_nodes++;
+    if (g_ai_abort || ai_time_up()) {
+        g_ai_abort = true;
+        return evaluate(state);
+    }
     int stand = evaluate(state);
     if (stand >= beta) return beta;
     if (stand > alpha) alpha = stand;
@@ -387,6 +404,11 @@ static int quiescence(GameState *state, int alpha, int beta) {
 
 
 static int negamax(GameState *state, int depth, int alpha, int beta, AiMove *out_best) {
+    g_ai_nodes++;
+    if (g_ai_abort || ai_time_up()) {
+        g_ai_abort = true;
+        return evaluate(state);
+    }
     int alpha_orig = alpha;
     uint32_t key = ai_position_key(state);
     AiMove tt_best = {0};
@@ -459,35 +481,52 @@ static int negamax(GameState *state, int depth, int alpha, int beta, AiMove *out
 static bool ai_compute_move(GameState *state, int depth, AiMove *out_move, bool track_stage) {
     if (!state || !out_move) return false;
     if (depth < 1) depth = 1;
-    if (depth > 8) depth = 8;
+    if (depth > 9) depth = 9;
+
+    bool timed = depth >= 9;
+    uint32_t deadline = timed ? (SDL_GetTicks() + AI_TIME_LIMIT_MS) : 0;
+    int max_depth = timed ? AI_TIME_MAX_DEPTH : depth;
 
     bool checkers = strncmp(state->match.mode, "checkers", 8) == 0;
     if (!checkers) {
         if (track_stage) ai_worker_set_stage(AI_STAGE_SEARCH);
         SearchMove best = {.from = {-1, -1}, .to = {-1, -1}, .hint = {0}};
-        if (!search_best_move(state, depth, &best)) {
+        bool ok = timed
+            ? search_best_move_timed(state, max_depth, deadline, &best)
+            : search_best_move(state, depth, &best);
+        if (!ok) {
             return false;
         }
+        search_get_counters(&g_ai_nodes, &g_ai_depth_reached);
         out_move->from = best.from;
         out_move->to = best.to;
         out_move->hint = best.hint;
         return true;
     }
 
+    g_ai_deadline_ms = deadline;
+    g_ai_abort = false;
+    g_ai_nodes = 0;
+    g_ai_depth_reached = 0;
+
     AiMove best_move = {0};
     bool found = false;
 
-    for (int d = 1; d <= depth; ++d) {
+    for (int d = 1; d <= max_depth; ++d) {
+        if (timed && ai_time_up()) break;
         if (track_stage) ai_worker_set_stage(AI_STAGE_SEARCH);
         AiMove iter_best = {0};
         int score = negamax(state, d, -AI_INF, AI_INF, &iter_best);
         (void)score;
+        if (g_ai_abort) break;
         if (ai_move_valid(&iter_best)) {
             best_move = iter_best;
             found = true;
+            g_ai_depth_reached = d;
         }
     }
 
+    g_ai_deadline_ms = 0;
     if (!found) {
         return false;
     }
@@ -563,6 +602,8 @@ static int ai_worker_thread(void *userdata) {
         worker->busy = false;
         worker->last_compute_ms = elapsed_ms;
         worker->last_reported_ms = elapsed_ms;
+        worker->last_nodes = g_ai_nodes;
+        worker->last_depth = g_ai_depth_reached;
         worker->stage = AI_STAGE_DONE;
         SDL_UnlockMutex(worker->mutex);
     }
@@ -676,8 +717,12 @@ bool ai_get_worker_status(AiWorkerStatus *out) {
         } else {
             out->last_compute_ms = 0.0;
         }
+        out->last_nodes = g_ai_worker.last_nodes;
+        out->last_depth = g_ai_worker.last_depth;
     } else {
         out->last_compute_ms = g_ai_worker.last_compute_ms;
+        out->last_nodes = g_ai_worker.last_nodes;
+        out->last_depth = g_ai_worker.last_depth;
     }
     out->stage = g_ai_worker.stage;
     SDL_UnlockMutex(g_ai_worker.mutex);

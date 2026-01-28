@@ -1,5 +1,6 @@
 #include "ai/search.h"
 
+#include <SDL.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -67,6 +68,24 @@ static uint64_t g_zobrist_castle[16];
 static uint64_t g_zobrist_ep[9];
 static uint64_t g_zobrist_side;
 static bool g_zobrist_ready = false;
+static uint32_t g_search_deadline_ms = 0;
+static bool g_search_abort = false;
+static uint64_t g_search_nodes = 0;
+static int g_search_depth_reached = 0;
+
+static inline bool search_time_up(void) {
+    return g_search_deadline_ms != 0 && SDL_GetTicks() >= g_search_deadline_ms;
+}
+
+void search_reset_counters(void) {
+    g_search_nodes = 0;
+    g_search_depth_reached = 0;
+}
+
+void search_get_counters(uint64_t *out_nodes, int *out_depth) {
+    if (out_nodes) *out_nodes = g_search_nodes;
+    if (out_depth) *out_depth = g_search_depth_reached;
+}
 
 static uint64_t splitmix64(uint64_t *x) {
     uint64_t z = (*x += 0x9e3779b97f4a7c15ULL);
@@ -798,6 +817,11 @@ static int terminal_score(const SearchState *s, int depth) {
 }
 
 static int quiescence(SearchState *s, int alpha, int beta) {
+    g_search_nodes++;
+    if (g_search_abort || search_time_up()) {
+        g_search_abort = true;
+        return evaluate(s);
+    }
     int stand = evaluate(s);
     if (stand >= beta) return beta;
     if (stand > alpha) alpha = stand;
@@ -820,6 +844,11 @@ static int quiescence(SearchState *s, int alpha, int beta) {
 }
 
 static int negamax(SearchState *s, int depth, int alpha, int beta, SearchMove *out_best) {
+    g_search_nodes++;
+    if (g_search_abort || search_time_up()) {
+        g_search_abort = true;
+        return evaluate(s);
+    }
     int alpha_orig = alpha;
     uint64_t key = s->key;
     SearchMove tt_best = {.from = {-1, -1}, .to = {-1, -1}, .hint = {0}};
@@ -915,6 +944,9 @@ static int negamax(SearchState *s, int depth, int alpha, int beta, SearchMove *o
 bool search_best_move(const GameState *state, int depth, SearchMove *out_move) {
     if (!state || !out_move) return false;
     init_zobrist();
+    g_search_deadline_ms = 0;
+    g_search_abort = false;
+    search_reset_counters();
     if (depth < 1) depth = 1;
     if (depth > 10) depth = 10;
 
@@ -944,9 +976,58 @@ bool search_best_move(const GameState *state, int depth, SearchMove *out_move) {
         if (iter_best.from.file >= 0) {
             best = iter_best;
             found = true;
+            g_search_depth_reached = d;
         }
     }
 
+    if (!found) return false;
+    *out_move = best;
+    return true;
+}
+
+bool search_best_move_timed(const GameState *state, int max_depth, uint32_t deadline_ms, SearchMove *out_move) {
+    if (!state || !out_move) return false;
+    init_zobrist();
+    g_search_deadline_ms = deadline_ms;
+    g_search_abort = false;
+    search_reset_counters();
+    if (max_depth < 1) max_depth = 1;
+    if (max_depth > SEARCH_MAX_DEPTH) max_depth = SEARCH_MAX_DEPTH;
+
+    memset(g_history, 0, sizeof(g_history));
+    memset(g_killers, 0, sizeof(g_killers));
+
+    SearchState s;
+    search_state_init(&s, state);
+
+    SearchMove best = {.from = {-1, -1}, .to = {-1, -1}, .hint = {0}};
+    bool found = false;
+    int last_score = 0;
+    for (int d = 1; d <= max_depth; ++d) {
+        if (search_time_up()) break;
+        SearchMove iter_best = {.from = {-1, -1}, .to = {-1, -1}, .hint = {0}};
+        int alpha = -SEARCH_INF;
+        int beta = SEARCH_INF;
+        if (d >= 2) {
+            int window = 50;
+            alpha = last_score - window;
+            beta = last_score + window;
+        }
+        int score = negamax(&s, d, alpha, beta, &iter_best);
+        if (g_search_abort) break;
+        if (score <= alpha || score >= beta) {
+            score = negamax(&s, d, -SEARCH_INF, SEARCH_INF, &iter_best);
+        }
+        if (g_search_abort) break;
+        last_score = score;
+        if (iter_best.from.file >= 0) {
+            best = iter_best;
+            found = true;
+            g_search_depth_reached = d;
+        }
+    }
+
+    g_search_deadline_ms = 0;
     if (!found) return false;
     *out_move = best;
     return true;

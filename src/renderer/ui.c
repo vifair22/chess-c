@@ -75,7 +75,7 @@ typedef struct {
     SDL_Rect chess;
     SDL_Rect checkers;
     SDL_Rect ai_side;
-    SDL_Rect depth[8];
+    SDL_Rect depth[9];
     SDL_Rect start;
     SDL_Rect back;
 } NewGameButtons;
@@ -204,10 +204,12 @@ static NewGameButtons new_game_buttons(const MenuLayout *layout) {
     y += btn_h + gap;
 
     y += layout->line_height; // AI DEPTH label
-    int depth_w = (full_w - gap * 3) / 4;
-    for (int row = 0; row < 2; ++row) {
-        for (int col = 0; col < 4; ++col) {
-            int i = row * 4 + col;
+    const int depth_cols = 3;
+    const int depth_rows = 3;
+    int depth_w = (full_w - gap * (depth_cols - 1)) / depth_cols;
+    for (int row = 0; row < depth_rows; ++row) {
+        for (int col = 0; col < depth_cols; ++col) {
+            int i = row * depth_cols + col;
             buttons.depth[i] = (SDL_Rect){x_left + col * (depth_w + gap), y, depth_w, btn_h};
         }
         y += btn_h + gap;
@@ -422,8 +424,14 @@ static void ui_draw_new_menu(RenderContext *ctx, const GameState *state) {
 
     y = buttons.depth[0].y - layout.line_height;
     draw_text(ctx->surface.renderer, x, y, layout.scale, kPalette.panel_text, "AI DEPTH");
-    for (int i = 0; i < 8; ++i) {
-        char label[2] = {(char)('1' + i), '\0'};
+    for (int i = 0; i < 9; ++i) {
+        char label[4] = {0};
+        if (i < 8) {
+            label[0] = (char)('1' + i);
+            label[1] = '\0';
+        } else {
+            snprintf(label, sizeof(label), "10S");
+        }
         bool focused = state->ui.menu_keyboard_active && state->ui.new_menu_index == (3 + i);
         draw_button(ctx, buttons.depth[i], label, state->ai.depth == (i + 1), focused,
             layout.scale, mouse_x, mouse_y, allow_hover);
@@ -795,7 +803,7 @@ bool ui_handle_main_menu_click(GameState *state, int mouse_x, int mouse_y, int w
             state->ui.new_menu_index = 2;
             return true;
         }
-        for (int i = 0; i < 8; ++i) {
+        for (int i = 0; i < 9; ++i) {
             if (point_in_rect(mouse_x, mouse_y, buttons.depth[i])) {
                 state->ai.depth = i + 1;
                 state->ui.new_menu_index = 3 + i;
