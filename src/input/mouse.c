@@ -8,6 +8,77 @@
 #include "save/save_handler.h"
 #include "renderer/ui.h"
 
+typedef struct {
+    SDL_Rect panel;
+    int scale;
+    int body_y;
+    int line_height;
+} MenuLayout;
+
+static SDL_Rect center_rect(int window_w, int window_h, int w, int h) {
+    SDL_Rect r;
+    r.x = (window_w - w) / 2;
+    r.y = (window_h - h) / 2;
+    r.w = w;
+    r.h = h;
+    return r;
+}
+
+static MenuLayout menu_layout(int window_w, int window_h) {
+    MenuLayout layout;
+    int panel_w = window_w * 2 / 3;
+    int panel_h = window_h * 2 / 3;
+    layout.panel = center_rect(window_w, window_h, panel_w, panel_h);
+    layout.scale = window_w / 300;
+    if (layout.scale < 2) layout.scale = 2;
+    layout.body_y = layout.panel.y + 24 + (8 * (layout.scale + 1));
+    layout.line_height = (7 + 1) * layout.scale;
+    return layout;
+}
+
+static bool point_in_rect(int x, int y, SDL_Rect rect) {
+    return x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
+}
+
+static void load_menu_scrollbar_metrics(int window_w, int window_h, SDL_Rect *out_list_box,
+    SDL_Rect *out_track, int *out_max_visible) {
+    MenuLayout layout = menu_layout(window_w, window_h);
+    int max_visible = 10;
+    int y = layout.body_y + layout.line_height + 6;
+    int list_row_h = layout.line_height + 6;
+    int list_gap = 12;
+    int list_total_h = max_visible * list_row_h + (max_visible - 1) * list_gap;
+    SDL_Rect list_box = {layout.panel.x + 24, y, layout.panel.w - 48, list_total_h};
+    int bar_w = 6;
+    int bar_x = list_box.x + list_box.w - bar_w - 4;
+    int bar_y = list_box.y + 4;
+    int bar_h = list_box.h - 8;
+    if (bar_h < 8) bar_h = 8;
+    SDL_Rect track = {bar_x, bar_y, bar_w, bar_h};
+    if (out_list_box) *out_list_box = list_box;
+    if (out_track) *out_track = track;
+    if (out_max_visible) *out_max_visible = max_visible;
+}
+
+static void update_load_scroll_from_thumb(GameState *game, int mouse_y, SDL_Rect track, int max_visible) {
+    int count = game->ui.load_count;
+    int max_start = count - max_visible;
+    if (max_start < 1) max_start = 1;
+    int bar_h = track.h;
+    int thumb_h = bar_h * max_visible / count;
+    if (thumb_h < 8) thumb_h = 8;
+    int usable = bar_h - thumb_h;
+    int top = track.y;
+    int thumb_y = mouse_y - game->ui.load_scroll_drag_offset;
+    if (thumb_y < top) thumb_y = top;
+    if (thumb_y > top + usable) thumb_y = top + usable;
+    float t = usable > 0 ? (float)(thumb_y - top) / (float)usable : 0.0f;
+    int new_start = (int)(t * max_start + 0.5f);
+    if (new_start < 0) new_start = 0;
+    if (new_start > max_start) new_start = max_start;
+    game->ui.load_scroll = new_start;
+}
+
 void mouse_handle_event(GameState *game, const RenderContext *render, const SDL_Event *event) {
     static int last_menu_x = 0;
     static int last_menu_y = 0;
@@ -46,8 +117,26 @@ void mouse_handle_event(GameState *game, const RenderContext *render, const SDL_
         } else {
             last_menu_valid = false;
         }
+        if (game->ui.show_load_menu && game->ui.load_scroll_dragging) {
+            SDL_Rect list_box = {0};
+            SDL_Rect track = {0};
+            int max_visible = 10;
+            load_menu_scrollbar_metrics(render->surface.window_width, render->surface.window_height,
+                &list_box, &track, &max_visible);
+            update_load_scroll_from_thumb(game, event->motion.y, track, max_visible);
+            game->ui.menu_keyboard_active = false;
+            game->ui.menu_mouse_active = true;
+        }
         SDL_UnlockMutex(game->mutex);
         (void)changed;
+        return;
+    }
+
+    if (event->type == SDL_MOUSEBUTTONUP && event->button.button == SDL_BUTTON_LEFT) {
+        if (SDL_LockMutex(game->mutex) == 0) {
+            game->ui.load_scroll_dragging = false;
+            SDL_UnlockMutex(game->mutex);
+        }
         return;
     }
 
@@ -58,7 +147,7 @@ void mouse_handle_event(GameState *game, const RenderContext *render, const SDL_
         }
         if (game->ui.show_load_menu && game->ui.load_count > 0) {
             int delta = (event->wheel.y > 0) ? -1 : (event->wheel.y < 0 ? 1 : 0);
-            int max_visible = 8;
+            int max_visible = 10;
             int max_start = game->ui.load_count - max_visible;
             if (max_start < 0) max_start = 0;
             game->ui.load_scroll += delta;
@@ -98,8 +187,10 @@ void mouse_handle_event(GameState *game, const RenderContext *render, const SDL_
             int action = ui_handle_save_modal_click(game, event->button.x, event->button.y,
                 render->surface.window_width, render->surface.window_height);
             if (action == 1) {
-                handled = save_write_named(game, game->ui.save_name);
-                game->ui.show_save_modal = false;
+                if (save_write_named(game, game->ui.save_name)) {
+                    handled = true;
+                    game->ui.show_save_modal = false;
+                }
             } else if (action == -1) {
                 game->ui.show_save_modal = false;
                 handled = true;
@@ -109,6 +200,29 @@ void mouse_handle_event(GameState *game, const RenderContext *render, const SDL_
                 save_refresh_list(game);
                 game->ui.load_needs_refresh = false;
             }
+            SDL_Rect list_box = {0};
+            SDL_Rect track = {0};
+            int max_visible = 10;
+            load_menu_scrollbar_metrics(render->surface.window_width, render->surface.window_height,
+                &list_box, &track, &max_visible);
+            if (point_in_rect(event->button.x, event->button.y, track)) {
+                int count = game->ui.load_count;
+                int max_start = count - max_visible;
+                if (max_start < 1) max_start = 1;
+                int thumb_h = track.h * max_visible / count;
+                if (thumb_h < 8) thumb_h = 8;
+                int thumb_y = track.y + (int)((track.h - thumb_h) * ((float)game->ui.load_scroll / (float)max_start));
+                if (event->button.y >= thumb_y && event->button.y <= thumb_y + thumb_h) {
+                    game->ui.load_scroll_drag_offset = event->button.y - thumb_y;
+                } else {
+                    game->ui.load_scroll_drag_offset = thumb_h / 2;
+                    update_load_scroll_from_thumb(game, event->button.y, track, max_visible);
+                }
+                game->ui.load_scroll_dragging = true;
+                game->ui.menu_keyboard_active = false;
+                game->ui.menu_mouse_active = true;
+                handled = true;
+            } else {
             int idx = -1;
             int action = ui_handle_load_menu_click(game, event->button.x, event->button.y,
                 render->surface.window_width, render->surface.window_height, &idx);
@@ -119,6 +233,7 @@ void mouse_handle_event(GameState *game, const RenderContext *render, const SDL_
             } else if (action == -1) {
                 game->ui.show_load_menu = false;
                 handled = true;
+            }
             }
         } else if (game->ui.show_main_menu) {
             bool request_quit = false;

@@ -3,6 +3,7 @@
 #include <SDL.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <time.h>
 
 typedef struct {
     char piece;    // '.' when empty, otherwise piece code
@@ -100,9 +101,12 @@ typedef struct {
     char save_name[64];
     int save_len;
     char load_names[32][64];
+    time_t load_times[32];
     int load_count;
     int load_scroll;
     int load_selected;
+    bool load_scroll_dragging;
+    int load_scroll_drag_offset;
 } UiState;
 
 typedef struct {
@@ -152,6 +156,10 @@ typedef struct {
     UiState ui;
     PerfState perf;
     AiSettings ai;
+    double ai_last_move_ms;
+    bool ai_timing_active;
+    uint64_t ai_timing_start;
+    double ai_time_freq;
     struct GameSnapshot *snapshots;
     int snapshot_len;
     int snapshot_cap;
@@ -179,6 +187,8 @@ void game_recompute_phase(GameState *state);
 void game_reset_history(GameState *state);
 // Apply a legal move (used by AI/replay), returns false if invalid or unsupported.
 bool game_apply_move(GameState *state, BoardPos from, BoardPos to, MoveHint hint);
+// Apply a legal move for the AI turn (bypasses AI turn input blocking). Asserts on invalid AI moves.
+bool game_apply_move_ai(GameState *state, BoardPos from, BoardPos to, MoveHint hint);
 // Undo the last completed turn (returns false if no snapshot available).
 bool game_undo(GameState *state);
 // Undo with optional animation update (false keeps last_move unchanged).

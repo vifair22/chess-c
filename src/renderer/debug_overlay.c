@@ -83,7 +83,7 @@ void debug_overlay_render(RenderContext *ctx, const GameState *state) {
         ai_stage,
         ai_worker_ok && ai_status.ready && ai_status.has_job ? " (job)" : "",
         ai_worker_ok && ai_status.ready && ai_status.has_result ? " (result)" : "",
-        ai_status.last_compute_ms,
+        state->ai_last_move_ms,
         state->match.game_time.total_seconds,
         fps,
         ms);
@@ -104,5 +104,4 @@ void debug_overlay_render(RenderContext *ctx, const GameState *state) {
 
     draw_text(ctx->surface.renderer, box.x + padding, box.y + padding, scale, kPalette.panel_text, body);
 }
-
 

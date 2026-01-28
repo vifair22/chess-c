@@ -33,9 +33,22 @@ static bool game_mode_is(const GameState *state, const char *mode) {
     return strncmp(state->match.mode, mode, sizeof(state->match.mode)) == 0;
 }
 
-static bool game_allows_moves(const GameState *state) {
+static bool game_allows_moves_ex(const GameState *state, bool allow_ai_turn) {
     // Block further input after terminal results.
-    return !game_is_terminal_phase(state->match.phase);
+    if (game_is_terminal_phase(state->match.phase)) {
+        return false;
+    }
+    if (!allow_ai_turn && state->ai.side != AI_SIDE_NONE) {
+        bool ai_is_white = state->ai.side == AI_SIDE_WHITE;
+        if (state->match.white_to_move == ai_is_white) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool game_allows_moves(const GameState *state) {
+    return game_allows_moves_ex(state, false);
 }
 
 static bool in_bounds(int file, int rank) {
@@ -48,12 +61,18 @@ static inline SquareState *board_square_ptr(BoardState *board, int file, int ran
 
 static bool is_empty(const GameState *state, int file, int rank);
 static bool is_opponent_piece(const GameState *state, int file, int rank, bool white);
+static bool game_apply_move_internal(GameState *state, BoardPos from, BoardPos to, MoveHint hint, bool allow_ai_turn, const char *context);
 
 static void copy_state_minimal(GameState *dst, const GameState *src) {
-    *dst = *src;
-    // mutex pointer should not be copied; this is used only for simulation.
+    if (!dst || !src) return;
+    memset(dst, 0, sizeof(*dst));
+    dst->board_state = src->board_state;
+    dst->match = src->match;
+    dst->variant = src->variant;
+    dst->chess = src->chess;
+    dst->moves.selected = src->moves.selected;
+    dst->moves.hover_pos = (BoardPos){-1, -1};
     dst->mutex = NULL;
-    // snapshots are not needed for simulations
     dst->snapshots = NULL;
     dst->snapshot_len = 0;
     dst->snapshot_cap = 0;
@@ -1018,6 +1037,7 @@ bool game_init(GameState *state) {
     game_reset(state, state->match.mode[0] ? state->match.mode : "chess");
     state->ui.show_main_menu = true;
     state->ui.show_pause_menu = false;
+    state->ai_time_freq = (double)SDL_GetPerformanceFrequency();
 
     return true;
 }
@@ -1161,16 +1181,52 @@ void game_handle_click(GameState *state, int file, int rank) {
 }
 
 bool game_apply_move(GameState *state, BoardPos from, BoardPos to, MoveHint hint) {
+    return game_apply_move_internal(state, from, to, hint, false, "game");
+}
+
+bool game_apply_move_ai(GameState *state, BoardPos from, BoardPos to, MoveHint hint) {
+    bool ok = game_apply_move_internal(state, from, to, hint, true, "ai");
+    if (!ok) {
+        SDL_Log("AI attempted an invalid move: from %d,%d to %d,%d (flags=%u promo=%c)",
+            from.file, from.rank, to.file, to.rank, hint.flags,
+            hint.promotion ? hint.promotion : '-');
+        SDL_assert(!"AI made an invalid move");
+    }
+    return ok;
+}
+
+static void log_move_reject(const GameState *state, BoardPos from, BoardPos to, MoveHint hint,
+    const char *context, const char *reason) {
     if (!state) {
+        SDL_Log("Move rejected (%s): %s (state=NULL) from %d,%d to %d,%d (flags=%u promo=%c)",
+            context ? context : "unknown", reason ? reason : "unknown",
+            from.file, from.rank, to.file, to.rank, hint.flags,
+            hint.promotion ? hint.promotion : '-');
+        return;
+    }
+    SDL_Log("Move rejected (%s): %s from %d,%d to %d,%d (flags=%u promo=%c) phase=%s turn=%d white_to_move=%d",
+        context ? context : "unknown", reason ? reason : "unknown",
+        from.file, from.rank, to.file, to.rank, hint.flags,
+        hint.promotion ? hint.promotion : '-', state->match.phase, state->match.turn_number,
+        state->match.white_to_move ? 1 : 0);
+}
+
+static bool game_apply_move_internal(GameState *state, BoardPos from, BoardPos to, MoveHint hint,
+    bool allow_ai_turn, const char *context) {
+    if (!state) {
+        log_move_reject(state, from, to, hint, context, "null state");
         return false;
     }
     if (from.file < 0 || from.file >= 8 || from.rank < 0 || from.rank >= 8) {
+        log_move_reject(state, from, to, hint, context, "from out of bounds");
         return false;
     }
     if (to.file < 0 || to.file >= 8 || to.rank < 0 || to.rank >= 8) {
+        log_move_reject(state, from, to, hint, context, "to out of bounds");
         return false;
     }
-    if (!game_allows_moves(state)) {
+    if (!game_allows_moves_ex(state, allow_ai_turn)) {
+        log_move_reject(state, from, to, hint, context, "input blocked");
         return false;
     }
     char promo_override = ((hint.flags & MOVE_PROMOTION) && hint.promotion) ? hint.promotion : '\0';
@@ -1180,6 +1236,7 @@ bool game_apply_move(GameState *state, BoardPos from, BoardPos to, MoveHint hint
             hint = state->moves.legal_moves[to.rank][to.file];
             if (!(hint.flags & MOVE_LEGAL)) {
                 game_clear_move_flags(state);
+                log_move_reject(state, from, to, hint, context, "illegal move");
                 return false;
             }
         }
@@ -1200,6 +1257,7 @@ bool game_apply_move(GameState *state, BoardPos from, BoardPos to, MoveHint hint
         hint = state->moves.legal_moves[to.rank][to.file];
         if (!(hint.flags & MOVE_LEGAL)) {
             game_clear_move_flags(state);
+            log_move_reject(state, from, to, hint, context, "illegal move");
             return false;
         }
     }
@@ -1482,6 +1540,11 @@ void game_reset(GameState *state, const char *mode) {
     state->ui.load_count = 0;
     state->ui.load_scroll = 0;
     state->ui.load_selected = -1;
+    state->ui.load_scroll_dragging = false;
+    state->ui.load_scroll_drag_offset = 0;
+    state->ai_last_move_ms = 0.0;
+    state->ai_timing_active = false;
+    state->ai_timing_start = 0;
     state->autosave_last_turn = -1;
     state->autosave_terminal_saved = false;
 

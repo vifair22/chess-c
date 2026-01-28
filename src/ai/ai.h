@@ -37,4 +37,4 @@ bool ai_poll_move(AiResult *out);
 uint32_t ai_position_key(const GameState *state);
 bool ai_get_worker_status(AiWorkerStatus *out);
 
-void ai_make_move(GameState *state);
+bool ai_make_move(GameState *state);

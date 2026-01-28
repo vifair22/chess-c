@@ -276,6 +276,17 @@ int main(int argc, char **argv) {
                 game.perf.accum_time = 0.0;
                 game.perf.accum_frames = 0;
             }
+            if (game.ai_timing_active) {
+                if (game.ai_time_freq <= 0.0) {
+                    game.ai_time_freq = (double)SDL_GetPerformanceFrequency();
+                }
+                if (game.ai_time_freq > 0.0) {
+                    uint64_t now_counter = SDL_GetPerformanceCounter();
+                    if (now_counter >= game.ai_timing_start) {
+                        game.ai_last_move_ms = ((double)(now_counter - game.ai_timing_start) * 1000.0 / game.ai_time_freq);
+                    }
+                }
+            }
             SDL_UnlockMutex(game.mutex);
         }
 
@@ -314,7 +325,13 @@ int main(int argc, char **argv) {
                         !game_is_terminal_phase(game.match.phase)) {
                         bool ai_is_white = game.ai.side == AI_SIDE_WHITE;
                         if (game.match.white_to_move == ai_is_white) {
-                            ai_request_move(&game);
+                            if (ai_request_move(&game)) {
+                                game.ai_timing_active = true;
+                                game.ai_timing_start = SDL_GetPerformanceCounter();
+                                if (game.ai_time_freq <= 0.0) {
+                                    game.ai_time_freq = (double)SDL_GetPerformanceFrequency();
+                                }
+                            }
                         }
                     }
                     SDL_UnlockMutex(game.mutex);
@@ -326,6 +343,7 @@ int main(int argc, char **argv) {
                         bool ai_is_white = game.ai.side == AI_SIDE_WHITE;
                         bool ai_turn = (game.ai.side != AI_SIDE_NONE) && (game.match.white_to_move == ai_is_white);
                         uint32_t key = ai_position_key(&game);
+                        bool applied = false;
                         if (ai_result.valid &&
                             ai_turn &&
                             ai_result.turn_number == game.match.turn_number &&
@@ -333,7 +351,15 @@ int main(int argc, char **argv) {
                             !game.ui.show_main_menu &&
                             !game.ui.show_pause_menu &&
                             !game_is_terminal_phase(game.match.phase)) {
-                            if (game_apply_move(&game, ai_result.from, ai_result.to, ai_result.hint)) {
+                            if (game_apply_move_ai(&game, ai_result.from, ai_result.to, ai_result.hint)) {
+                                applied = true;
+                                if (game.ai_timing_active && game.ai_time_freq > 0.0) {
+                                    uint64_t end = SDL_GetPerformanceCounter();
+                                    if (end >= game.ai_timing_start) {
+                                        game.ai_last_move_ms = ((double)(end - game.ai_timing_start) * 1000.0 / game.ai_time_freq);
+                                    }
+                                    game.ai_timing_active = false;
+                                }
                                 if (replay_global_recording()) {
                                     char promo = '\0';
                                     if ((ai_result.hint.flags & MOVE_PROMOTION) && ai_result.hint.promotion) {
@@ -346,13 +372,32 @@ int main(int argc, char **argv) {
                                 }
                             }
                         }
+                        if (game.ai_timing_active && !applied) {
+                            game.ai_timing_active = false;
+                        }
                         SDL_UnlockMutex(game.mutex);
                     }
                 }
             } else {
                 bool can_ai_move = !render_ready || !render.anim.active;
                 if (can_ai_move && SDL_LockMutex(game.mutex) == 0) {
-                    ai_make_move(&game);
+                    if (game.ai.side != AI_SIDE_NONE &&
+                        !game.ui.show_main_menu &&
+                        !game.ui.show_pause_menu &&
+                        !game_is_terminal_phase(game.match.phase)) {
+                        bool ai_is_white = game.ai.side == AI_SIDE_WHITE;
+                        if (game.match.white_to_move == ai_is_white) {
+                            uint64_t start = SDL_GetPerformanceCounter();
+                            if (game.ai_time_freq <= 0.0) {
+                                game.ai_time_freq = (double)SDL_GetPerformanceFrequency();
+                            }
+                            bool applied = ai_make_move(&game);
+                            uint64_t end = SDL_GetPerformanceCounter();
+                            if (applied && game.ai_time_freq > 0.0 && end >= start) {
+                                game.ai_last_move_ms = ((double)(end - start) * 1000.0 / game.ai_time_freq);
+                            }
+                        }
+                    }
                     SDL_UnlockMutex(game.mutex);
                 }
             }

@@ -10,7 +10,6 @@
 #include "renderer/palette.h"
 #include "renderer/debug_overlay.h"
 #include "renderer/ui.h"
-#include "game/logic.h"
 
 static SDL_Texture *create_texture_from_sprite(SDL_Renderer *renderer, const PieceSprite *sprite) {
     if (!sprite || !renderer) {
