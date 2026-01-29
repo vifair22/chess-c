@@ -34,6 +34,7 @@ typedef struct {
 
 bool ai_worker_init(void);
 void ai_worker_shutdown(void);
+void ai_worker_reset(void);
 bool ai_request_move(const GameState *state);
 bool ai_poll_move(AiResult *out);
 uint32_t ai_position_key(const GameState *state);

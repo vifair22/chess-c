@@ -49,6 +49,23 @@ typedef struct {
 } RenderContext;
 
 typedef struct {
+    SDL_Rect panel_box;
+    int text_scale;
+    int list_scale;
+    int gap;
+    int line_h;
+    int list_line_h;
+    int list_start_y;
+    int title_y;
+    int label_x;
+    int white_label_y;
+    int black_label_y;
+    bool visible;
+    SDL_Rect white_buttons[4];
+    SDL_Rect black_buttons[4];
+} RenderPromoLayout;
+
+typedef struct {
     int offset_x;
     int offset_y;
     int cell;
@@ -60,4 +77,5 @@ typedef struct {
 bool render_init(RenderContext *ctx, const char *title, int width, int height);
 void render_frame(RenderContext *ctx, GameState *state);
 BoardGeometry render_compute_board_geometry(const RenderContext *ctx);
+bool render_get_promo_layout(const RenderContext *ctx, const GameState *state, RenderPromoLayout *out);
 void render_shutdown(RenderContext *ctx);

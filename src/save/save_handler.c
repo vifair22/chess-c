@@ -97,7 +97,7 @@ static bool refresh_list(GameState *state, const char *pattern) {
 bool save_refresh_list(GameState *state) {
     if (!state) return false;
     ensure_saves_dir();
-    return refresh_list(state, "saves\\*.replay");
+    return refresh_list(state, "saves\\*.save");
 }
 
 bool replay_refresh_list(GameState *state) {
@@ -126,7 +126,7 @@ bool save_write_named(GameState *state, const char *name) {
         return false;
     }
     char path[256];
-    snprintf(path, sizeof(path), "saves/%s.replay", sanitized);
+    snprintf(path, sizeof(path), "saves/%s.save", sanitized);
     return replay_global_save(path);
 }
 
@@ -169,9 +169,9 @@ bool save_load_named(GameState *state, const char *filename) {
         state->ui.show_load_confirm = false;
         state->ui.load_needs_refresh = false;
         state->ui.show_new_menu = false;
-        replay_global_stop();
         return false;
     }
+    replay_global_load(&replay, SDL_GetTicks());
     replay_free(&replay);
 
     state->ui.show_main_menu = false;
@@ -183,13 +183,31 @@ bool save_load_named(GameState *state, const char *filename) {
     state->ui.show_new_menu = false;
     state->ui.replay_mode_active = false;
 
-    replay_global_stop();
-    replay_global_start(state, SDL_GetTicks());
-
-    state->autosave_last_turn = -1;
-    state->autosave_terminal_saved = false;
-
     return true;
+}
+
+bool replay_write_named(GameState *state, const char *name) {
+    if (!state || !name || !name[0]) return false;
+    bool has_non_space = false;
+    for (const char *p = name; *p; ++p) {
+        if (*p != ' ' && *p != '\t' && *p != '\r' && *p != '\n') {
+            has_non_space = true;
+            break;
+        }
+    }
+    if (!has_non_space) {
+        return false;
+    }
+    ensure_replays_dir();
+
+    char sanitized[96];
+    sanitize_name(name, sanitized, sizeof(sanitized));
+    if (!sanitized[0]) {
+        return false;
+    }
+    char path[256];
+    snprintf(path, sizeof(path), "replays/%s.replay", sanitized);
+    return replay_global_save(path);
 }
 
 bool replay_request_named(GameState *state, const char *filename) {

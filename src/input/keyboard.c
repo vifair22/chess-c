@@ -20,6 +20,13 @@ static void ensure_load_focus_visible(GameState *game, int max_visible) {
         return;
     }
     if (focus < 0) focus = 0;
+    if (focus == count) {
+        int max_start = count - max_visible;
+        if (max_start < 0) max_start = 0;
+        game->ui.load_scroll = max_start;
+        game->ui.load_menu_focus = focus;
+        return;
+    }
     if (focus >= count) focus = count - 1;
     game->ui.load_menu_focus = focus;
     if (game->ui.load_scroll > focus) {
@@ -41,11 +48,13 @@ void keyboard_handle_event(GameState *game, const SDL_Event *event) {
         SDL_Log("SDL_LockMutex failed: %s", SDL_GetError());
         return;
     }
-    if (game->ui.replay_mode_active && event->type == SDL_KEYDOWN) {
+    if (game->ui.replay_mode_active && event->type == SDL_KEYDOWN &&
+        !game->ui.show_pause_menu && !game_is_terminal_phase(game->match.phase)) {
         SDL_Keycode key = event->key.keysym.sym;
         if (key == SDLK_ESCAPE || key == SDLK_p) {
             game->ui.show_pause_menu = true;
             game->ui.pause_menu_index = 0;
+            game->ui.replay_paused = true;
             goto cleanup;
         }
     }
@@ -91,17 +100,64 @@ void keyboard_handle_event(GameState *game, const SDL_Event *event) {
         if (key == SDLK_RETURN || key == SDLK_KP_ENTER) {
             if (game->ui.save_menu_index == 1) {
                 game->ui.show_save_modal = false;
+                game->ui.save_is_replay = false;
                 goto cleanup;
             }
             if (game->ui.save_len > 0) {
-                if (save_write_named(game, game->ui.save_name)) {
+                bool ok = false;
+                if (game->ui.save_is_replay) {
+                    ok = replay_write_named(game, game->ui.save_name);
+                } else {
+                    ok = save_write_named(game, game->ui.save_name);
+                }
+                if (ok) {
                     game->ui.show_save_modal = false;
+                    if (game->ui.save_is_replay) {
+                        game->ui.replay_saved = true;
+                    }
+                    game->ui.save_is_replay = false;
                 }
             }
             goto cleanup;
         }
         if (key == SDLK_ESCAPE) {
             game->ui.show_save_modal = false;
+            game->ui.save_is_replay = false;
+            goto cleanup;
+        }
+        goto cleanup;
+    }
+
+    if (game->ui.show_load_confirm) {
+        if (event->type != SDL_KEYDOWN) {
+            goto cleanup;
+        }
+        SDL_Keycode key = event->key.keysym.sym;
+        if (key == SDLK_LEFT || key == SDLK_RIGHT || key == SDLK_UP || key == SDLK_DOWN) {
+            if (!game->ui.menu_keyboard_active) {
+                game->ui.menu_keyboard_active = true;
+                game->ui.menu_mouse_active = false;
+                goto cleanup;
+            }
+            game->ui.load_confirm_index = (game->ui.load_confirm_index == 0) ? 1 : 0;
+            goto cleanup;
+        }
+        if (key == SDLK_RETURN || key == SDLK_KP_ENTER) {
+            if (game->ui.load_confirm_index == 0) {
+                if (game->ui.load_selected >= 0 && game->ui.load_selected < game->ui.load_count) {
+                    if (game->ui.load_is_replay) {
+                        replay_request_named(game, game->ui.load_names[game->ui.load_selected]);
+                    } else {
+                        save_load_named(game, game->ui.load_names[game->ui.load_selected]);
+                    }
+                }
+                game->ui.show_load_menu = false;
+            }
+            game->ui.show_load_confirm = false;
+            goto cleanup;
+        }
+        if (key == SDLK_ESCAPE) {
+            game->ui.show_load_confirm = false;
             goto cleanup;
         }
         goto cleanup;
@@ -153,44 +209,25 @@ void keyboard_handle_event(GameState *game, const SDL_Event *event) {
                 game->ui.load_selected = game->ui.load_menu_focus;
                 game->ui.show_load_confirm = true;
                 game->ui.load_confirm_index = 0;
+                game->ui.menu_keyboard_active = true;
+                game->ui.menu_mouse_active = false;
             } else {
                 game->ui.show_load_menu = false;
             }
             goto cleanup;
         }
-        goto cleanup;
-    }
-
-    if (game->ui.show_load_confirm) {
-        if (event->type != SDL_KEYDOWN) {
-            goto cleanup;
-        }
-        SDL_Keycode key = event->key.keysym.sym;
-        if (key == SDLK_LEFT || key == SDLK_RIGHT || key == SDLK_UP || key == SDLK_DOWN) {
+        if (key == SDLK_TAB) {
             if (!game->ui.menu_keyboard_active) {
                 game->ui.menu_keyboard_active = true;
                 game->ui.menu_mouse_active = false;
                 goto cleanup;
             }
-            game->ui.load_confirm_index = (game->ui.load_confirm_index == 0) ? 1 : 0;
-            goto cleanup;
-        }
-        if (key == SDLK_RETURN || key == SDLK_KP_ENTER) {
-            if (game->ui.load_confirm_index == 0) {
-                if (game->ui.load_selected >= 0 && game->ui.load_selected < game->ui.load_count) {
-                    if (game->ui.load_is_replay) {
-                        replay_request_named(game, game->ui.load_names[game->ui.load_selected]);
-                    } else {
-                        save_load_named(game, game->ui.load_names[game->ui.load_selected]);
-                    }
-                }
+            if (game->ui.load_menu_focus == count) {
+                game->ui.load_menu_focus = count > 0 ? (count - 1) : 0;
+            } else {
+                game->ui.load_menu_focus = count;
             }
-            game->ui.show_load_confirm = false;
-            game->ui.show_load_menu = false;
-            goto cleanup;
-        }
-        if (key == SDLK_ESCAPE) {
-            game->ui.show_load_confirm = false;
+            ensure_load_focus_visible(game, max_visible);
             goto cleanup;
         }
         goto cleanup;
@@ -294,7 +331,7 @@ void keyboard_handle_event(GameState *game, const SDL_Event *event) {
                 game->ui.show_new_menu = false;
                 goto cleanup;
             }
-            if (key == SDLK_RETURN || key == SDLK_SPACE || key == SDLK_KP_ENTER) {
+            if (key == SDLK_RETURN || key == SDLK_KP_ENTER) {
                 switch (idx) {
                     case 0:
                         game_reset(game, "chess");
@@ -385,7 +422,7 @@ void keyboard_handle_event(GameState *game, const SDL_Event *event) {
                 game->ui.main_menu_index = clamp_int(game->ui.main_menu_index + 1, 0, 3);
                 goto cleanup;
             }
-            if (key == SDLK_RETURN || key == SDLK_SPACE || key == SDLK_KP_ENTER) {
+            if (key == SDLK_RETURN || key == SDLK_KP_ENTER) {
                 if (game->ui.main_menu_index == 0) {
                     game->ui.show_new_menu = true;
                     game->ui.new_menu_index = 0;
@@ -436,17 +473,15 @@ void keyboard_handle_event(GameState *game, const SDL_Event *event) {
             game->ui.pause_menu_index = clamp_int(game->ui.pause_menu_index + 1, 0, max_pause_index);
             goto cleanup;
         }
-        if (key == SDLK_RETURN || key == SDLK_SPACE || key == SDLK_KP_ENTER) {
+        if (key == SDLK_RETURN || key == SDLK_KP_ENTER) {
             if (game->ui.replay_mode_active) {
                 if (game->ui.pause_menu_index == 0) {
                     game->ui.show_pause_menu = false;
+                    game->ui.replay_paused = false;
                     goto cleanup;
                 }
                 if (game->ui.pause_menu_index == 1) {
-                    game_reset(game, game->match.mode);
-                    game->ui.show_main_menu = true;
-                    game->ui.show_pause_menu = false;
-                    game->ui.replay_mode_active = false;
+                    game_full_reset(game);
                     replay_global_stop();
                     goto cleanup;
                 }
@@ -461,6 +496,7 @@ void keyboard_handle_event(GameState *game, const SDL_Event *event) {
                     game->ui.save_len = 0;
                     game->ui.save_name[0] = '\0';
                     game->ui.save_menu_index = 0;
+                    game->ui.save_is_replay = false;
                     goto cleanup;
                 case 2:
                     game->ui.show_load_menu = true;
@@ -480,17 +516,57 @@ void keyboard_handle_event(GameState *game, const SDL_Event *event) {
         }
         if (key == SDLK_ESCAPE) {
             game->ui.show_pause_menu = false;
+            if (game->ui.replay_mode_active) {
+                game->ui.replay_paused = false;
+            }
             goto cleanup;
         }
     }
 
+    if (game_is_terminal_phase(game->match.phase) &&
+        !game->ui.show_save_modal &&
+        !game->ui.show_load_menu &&
+        !game->ui.show_load_confirm &&
+        !game->ui.show_new_menu &&
+        !game->ui.show_pause_menu) {
+        if (event->type != SDL_KEYDOWN) {
+            goto cleanup;
+        }
+        if (key == SDLK_UP || key == SDLK_DOWN || key == SDLK_LEFT || key == SDLK_RIGHT || key == SDLK_TAB) {
+            if (!game->ui.menu_keyboard_active) {
+                game->ui.menu_keyboard_active = true;
+                game->ui.menu_mouse_active = false;
+                goto cleanup;
+            }
+            game->ui.win_menu_index = (game->ui.win_menu_index == 0) ? 1 : 0;
+            goto cleanup;
+        }
+        if (key == SDLK_RETURN || key == SDLK_KP_ENTER) {
+            bool save_disabled = game->ui.replay_saved || game->ui.replay_mode_active;
+            if (game->ui.win_menu_index == 0 && !save_disabled) {
+                game->ui.show_save_modal = true;
+                game->ui.save_len = 0;
+                game->ui.save_name[0] = '\0';
+                game->ui.save_menu_index = 0;
+                game->ui.save_is_replay = true;
+            } else {
+                game_full_reset(game);
+                replay_global_stop();
+            }
+            goto cleanup;
+        }
+        if (key == SDLK_ESCAPE) {
+            game_full_reset(game);
+            replay_global_stop();
+            goto cleanup;
+        }
+        goto cleanup;
+    }
+
     switch (key) {
         case SDLK_RETURN:
-        case SDLK_SPACE:
             if (game_is_terminal_phase(game->match.phase)) {
-                game_reset(game, game->match.mode);
-                game->ui.show_main_menu = true;
-                game->ui.show_pause_menu = false;
+                game_full_reset(game);
                 replay_global_stop();
             }
             goto cleanup;

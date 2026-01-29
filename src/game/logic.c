@@ -91,8 +91,8 @@ static void build_san(const GameState *state, BoardPos from, BoardPos to, MoveHi
     bool is_checkers = game_mode_is(state, "checkers");
     if (is_checkers) {
         snprintf(out, cap, "%c%d-%c%d",
-            (char)('a' + from.file), from.rank + 1,
-            (char)('a' + to.file), to.rank + 1);
+            (char)('a' + from.file), 8 - from.rank,
+            (char)('a' + to.file), 8 - to.rank);
         return;
     }
     if (hint.flags & MOVE_CASTLE_KING) {
@@ -1228,6 +1228,31 @@ void game_destroy(GameState *state) {
     }
 }
 
+void game_full_reset(GameState *state) {
+    if (!state) return;
+    uint32_t reset_counter = state->ui.full_reset_counter + 1;
+    SDL_mutex *mutex = state->mutex;
+    GameSnapshot *snapshots = state->snapshots;
+    int snapshot_cap = state->snapshot_cap;
+    memset(state, 0, sizeof(*state));
+    state->mutex = mutex;
+    state->snapshots = snapshots;
+    state->snapshot_cap = snapshot_cap;
+    if (!state->snapshots) {
+        state->snapshots = (GameSnapshot *)calloc(GAME_SNAPSHOT_MAX, sizeof(GameSnapshot));
+        state->snapshot_cap = state->snapshots ? GAME_SNAPSHOT_MAX : 0;
+        state->snapshot_len = 0;
+    }
+    state->ai.depth = 2;
+    state->ai.side = AI_SIDE_NONE;
+    game_reset(state, "chess");
+    state->ui.show_main_menu = true;
+    state->ui.show_pause_menu = false;
+    state->ui.show_new_menu = false;
+    state->ui.full_reset_counter = reset_counter;
+    state->ai_time_freq = (double)SDL_GetPerformanceFrequency();
+}
+
 static void game_handle_click_chess(GameState *state, int file, int rank) {
     if ((unsigned)file >= 8 || (unsigned)rank >= 8) {
         return;
@@ -1721,6 +1746,9 @@ void game_reset(GameState *state, const char *mode) {
     state->ui.show_load_confirm = false;
     state->ui.load_needs_refresh = false;
     state->ui.load_is_replay = false;
+    state->ui.replay_saved = false;
+    state->ui.replay_paused = false;
+    state->ui.win_menu_index = 0;
     state->ui.main_menu_index = 0;
     state->ui.new_menu_index = 0;
     state->ui.pause_menu_index = 0;
@@ -1729,6 +1757,7 @@ void game_reset(GameState *state, const char *mode) {
     state->ui.load_confirm_index = 0;
     state->ui.menu_keyboard_active = false;
     state->ui.menu_mouse_active = true;
+    state->ui.save_is_replay = false;
     state->ui.save_len = 0;
     state->ui.save_name[0] = '\0';
     state->ui.load_count = 0;

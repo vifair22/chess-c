@@ -100,6 +100,9 @@ typedef struct {
     bool show_new_menu;
     bool load_needs_refresh;
     bool load_is_replay;
+    bool replay_saved;
+    bool replay_paused;
+    int win_menu_index;
     int main_menu_index;
     int new_menu_index;
     int pause_menu_index;
@@ -108,6 +111,7 @@ typedef struct {
     int load_confirm_index;
     bool menu_keyboard_active;
     bool menu_mouse_active;
+    bool save_is_replay;
     char save_name[64];
     int save_len;
     char load_names[32][64];
@@ -126,6 +130,7 @@ typedef struct {
     bool ai_highlight_suppressed;
     BoardPos ai_highlight_from;
     BoardPos ai_highlight_to;
+    uint32_t full_reset_counter;
   } UiState;
 
 typedef struct {
@@ -194,6 +199,8 @@ typedef struct {
 
 bool game_init(GameState *state);
 void game_destroy(GameState *state);
+// Full reset to initial game-init state (keeps mutex/snapshots allocation).
+void game_full_reset(GameState *state);
 bool game_is_white_piece(char piece);
 bool game_is_black_piece(char piece);
 bool game_is_terminal_phase(const char *phase);

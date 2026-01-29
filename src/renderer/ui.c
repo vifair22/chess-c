@@ -430,16 +430,17 @@ static void ui_draw_new_menu(RenderContext *ctx, const GameState *state) {
     }
 
     draw_button(ctx, buttons.start, "START", false,
-        state->ui.menu_keyboard_active && state->ui.new_menu_index == 11, layout.scale, mouse_x, mouse_y, allow_hover);
-    draw_button(ctx, buttons.back, "BACK", false,
         state->ui.menu_keyboard_active && state->ui.new_menu_index == 12, layout.scale, mouse_x, mouse_y, allow_hover);
+    draw_button(ctx, buttons.back, "BACK", false,
+        state->ui.menu_keyboard_active && state->ui.new_menu_index == 13, layout.scale, mouse_x, mouse_y, allow_hover);
 
     int hint_y = buttons.back.y + buttons.back.h + layout.line_height;
     draw_text(ctx->surface.renderer, x, hint_y, layout.scale, kPalette.panel_text, "ESC TO GO BACK");
 }
 
 static void ui_draw_save_modal(RenderContext *ctx, const GameState *state) {
-    MenuLayout layout = draw_panel_base(ctx, "SAVE GAME", true);
+    const char *title = state->ui.save_is_replay ? "SAVE REPLAY" : "SAVE GAME";
+    MenuLayout layout = draw_panel_base(ctx, title, true);
     bool allow_hover = state->ui.menu_mouse_active;
     SDL_Rect buttons[2];
     int y = layout.body_y;
@@ -537,8 +538,12 @@ static void ui_draw_load_menu(RenderContext *ctx, const GameState *state) {
             strncpy(label, name, sizeof(label) - 1);
             label[sizeof(label) - 1] = '\0';
             char *dot = strrchr(label, '.');
-            if (dot && strcmp(dot, ".replay") == 0) {
-                *dot = '\0';
+            if (dot) {
+                if (state->ui.load_is_replay && strcmp(dot, ".replay") == 0) {
+                    *dot = '\0';
+                } else if (!state->ui.load_is_replay && strcmp(dot, ".save") == 0) {
+                    *dot = '\0';
+                }
             }
             char time_buf[32] = {0};
             struct tm tm_local;
@@ -601,8 +606,12 @@ static void ui_draw_load_confirm(RenderContext *ctx, const GameState *state) {
         strncpy(label, state->ui.load_names[state->ui.load_selected], sizeof(label) - 1);
         label[sizeof(label) - 1] = '\0';
         char *dot = strrchr(label, '.');
-        if (dot && strcmp(dot, ".replay") == 0) {
-            *dot = '\0';
+        if (dot) {
+            if (state->ui.load_is_replay && strcmp(dot, ".replay") == 0) {
+                *dot = '\0';
+            } else if (!state->ui.load_is_replay && strcmp(dot, ".save") == 0) {
+                *dot = '\0';
+            }
         }
         draw_panel_text(ctx, &layout, label, y);
     }
@@ -641,9 +650,6 @@ void ui_draw_main_menu(RenderContext *ctx, const GameState *state) {
         layout.scale, mouse_x, mouse_y, allow_hover);
 
     int hint_y = buttons.quit.y + buttons.quit.h + layout.line_height;
-    int hint_w = measure_text_width("ENTER/SPACE TO SELECT", layout.scale);
-    int hint_x = (ctx->surface.window_width - hint_w) / 2;
-    draw_text(ctx->surface.renderer, hint_x, hint_y, layout.scale, kPalette.panel_text, "ENTER/SPACE TO SELECT");
 
     if (state->ui.show_load_menu) {
         ui_draw_load_menu(ctx, state);
@@ -767,7 +773,7 @@ void ui_draw_win_screen(RenderContext *ctx, const GameState *state) {
 
     MenuLayout layout = draw_panel_base(ctx, title, false);
     bool allow_hover = state->ui.menu_mouse_active;
-    SDL_Rect buttons[1];
+    SDL_Rect buttons[2];
     int y = layout.body_y;
     char last_move[64];
     format_last_move(state, last_move, sizeof(last_move));
@@ -775,12 +781,33 @@ void ui_draw_win_screen(RenderContext *ctx, const GameState *state) {
         state->match.mode, result, cause, last_move);
     draw_panel_text(ctx, &layout, body, y);
     y += layout.line_height * 5;
-    menu_vertical_buttons(&layout, buttons, 1, y);
+    menu_vertical_buttons(&layout, buttons, 2, y);
     int mouse_x = 0;
     int mouse_y = 0;
     SDL_GetMouseState(&mouse_x, &mouse_y);
-    draw_button(ctx, buttons[0], "MAIN MENU", false, state->ui.menu_keyboard_active,
+    bool save_disabled = state->ui.replay_saved || state->ui.replay_mode_active;
+    bool save_focused = state->ui.menu_keyboard_active && state->ui.win_menu_index == 0;
+    bool menu_focused = state->ui.menu_keyboard_active && state->ui.win_menu_index == 1;
+    draw_button(ctx, buttons[0], "SAVE REPLAY", false, save_focused && !save_disabled,
+        layout.scale, mouse_x, mouse_y, allow_hover && !save_disabled);
+    if (save_disabled) {
+        SDL_Color dim = kPalette.panel_fill;
+        dim.a = 180;
+        SDL_SetRenderDrawColor(ctx->surface.renderer, dim.r, dim.g, dim.b, dim.a);
+        SDL_RenderFillRect(ctx->surface.renderer, &buttons[0]);
+        SDL_SetRenderDrawColor(ctx->surface.renderer, kPalette.panel_border.r, kPalette.panel_border.g,
+            kPalette.panel_border.b, kPalette.panel_border.a);
+        SDL_RenderDrawRect(ctx->surface.renderer, &buttons[0]);
+        int text_w = measure_text_width("SAVE REPLAY", layout.scale);
+        int text_x = buttons[0].x + (buttons[0].w - text_w) / 2;
+        int text_y = buttons[0].y + (buttons[0].h - (7 + 1) * layout.scale) / 2;
+        draw_text(ctx->surface.renderer, text_x, text_y, layout.scale, kPalette.label_text, "SAVE REPLAY");
+    }
+    draw_button(ctx, buttons[1], "MAIN MENU", false, menu_focused,
         layout.scale, mouse_x, mouse_y, allow_hover);
+    if (state->ui.show_save_modal) {
+        ui_draw_save_modal(ctx, state);
+    }
 }
 
 
@@ -881,13 +908,11 @@ bool ui_handle_pause_menu_click(GameState *state, int mouse_x, int mouse_y, int 
         if (point_in_rect(mouse_x, mouse_y, buttons[0])) {
             state->ui.show_pause_menu = false;
             state->ui.pause_menu_index = 0;
+            state->ui.replay_paused = false;
             return true;
         }
         if (point_in_rect(mouse_x, mouse_y, buttons[1])) {
-            game_reset(state, state->match.mode);
-            state->ui.show_main_menu = true;
-            state->ui.show_pause_menu = false;
-            state->ui.replay_mode_active = false;
+            game_full_reset(state);
             replay_global_stop();
             state->ui.pause_menu_index = 1;
             return true;
@@ -904,6 +929,7 @@ bool ui_handle_pause_menu_click(GameState *state, int mouse_x, int mouse_y, int 
             state->ui.save_len = 0;
             state->ui.save_name[0] = '\0';
             state->ui.save_menu_index = 0;
+            state->ui.save_is_replay = false;
             state->ui.pause_menu_index = 1;
             return true;
         }
@@ -932,15 +958,23 @@ bool ui_handle_win_screen_click(GameState *state, int mouse_x, int mouse_y, int 
         mouse_y < layout.panel.y || mouse_y > layout.panel.y + layout.panel.h) {
         return false;
     }
-    SDL_Rect buttons[1];
+    SDL_Rect buttons[2];
     int y = layout.body_y + layout.line_height * 5;
-    menu_vertical_buttons(&layout, buttons, 1, y);
+    menu_vertical_buttons(&layout, buttons, 2, y);
     if (point_in_rect(mouse_x, mouse_y, buttons[0])) {
-        game_reset(state, state->match.mode);
-        state->ui.show_main_menu = true;
-        state->ui.show_pause_menu = false;
+        if (state->ui.replay_saved || state->ui.replay_mode_active) {
+            return true;
+        }
+        state->ui.show_save_modal = true;
+        state->ui.save_len = 0;
+        state->ui.save_name[0] = '\0';
+        state->ui.save_menu_index = 0;
+        state->ui.save_is_replay = true;
+        return true;
+    }
+    if (point_in_rect(mouse_x, mouse_y, buttons[1])) {
+        game_full_reset(state);
         replay_global_stop();
-        state->ui.replay_mode_active = false;
         return true;
     }
     return false;

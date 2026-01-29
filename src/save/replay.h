@@ -95,6 +95,7 @@ void replay_recorder_record_click(ReplayRecorder *rec, uint32_t now_ticks, int f
 void replay_recorder_record_move(ReplayRecorder *rec, uint32_t now_ticks, int from_file, int from_rank, int to_file, int to_rank, char promotion);
 bool replay_recorder_save(const ReplayRecorder *rec, const char *path);
 void replay_recorder_end(ReplayRecorder *rec);
+void replay_recorder_load(ReplayRecorder *rec, const ReplayData *data, uint32_t now_ticks);
 bool replay_recorder_write_header(ReplayRecorder *rec, const char *path);
 bool replay_recorder_append_events(ReplayRecorder *rec, const char *path);
 bool replay_recorder_write_end(ReplayRecorder *rec, const char *path);
@@ -105,6 +106,7 @@ ReplayRecorder *replay_global_recorder(void);
 void replay_global_start(const GameState *state, uint32_t now_ticks);
 bool replay_global_save(const char *path);
 void replay_global_stop(void);
+void replay_global_load(const ReplayData *data, uint32_t now_ticks);
 bool replay_global_append(const char *path);
 bool replay_global_write_end(const char *path);
 

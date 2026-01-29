@@ -45,7 +45,6 @@ static void ensure_replay_dir(void) {
 
 int main(int argc, char **argv) {
     const char *record_path = NULL;
-    char auto_record_path[256] = "replays/auto_session.replay";
     const char *replay_path = NULL;
     bool headless = false;
     int headless_flag = 0; // 0 = unset, 1 = force headless, -1 = force windowed
@@ -59,6 +58,7 @@ int main(int argc, char **argv) {
     Uint32 replay_hold_until = 0;
     bool text_input_active = false;
     bool ai_worker_ready = false;
+    uint32_t last_full_reset_counter = 0;
 
     bool saw_error = false;
     for (int i = 1; i < argc; ++i) {
@@ -121,20 +121,10 @@ int main(int argc, char **argv) {
         }
         return 1;
     }
-    ensure_replay_dir();
-
-    // Prepare auto-record path for live games (recording begins on game start, not in menus).
-    if (!replay_path) {
-        if (!record_path) {
-            time_t now = time(NULL);
-            struct tm local_tm;
-            if (localtime_s(&local_tm, &now) == 0) {
-                char stamp[64];
-                if (strftime(stamp, sizeof(stamp), "%Y%m%d_%H%M%S", &local_tm) > 0) {
-                    snprintf(auto_record_path, sizeof(auto_record_path), "replays/auto_%s.replay", stamp);
-                }
-            }
-        }
+    last_full_reset_counter = game.ui.full_reset_counter;
+    bool record_to_file = (record_path != NULL);
+    if (record_to_file) {
+        ensure_replay_dir();
     }
 
     // Replay with headless/testing: apply, emit checksum/expectations, exit.
@@ -246,6 +236,22 @@ int main(int argc, char **argv) {
             want_text_input = game.ui.show_save_modal;
             SDL_UnlockMutex(game.mutex);
         }
+
+        if (SDL_LockMutex(game.mutex) == 0) {
+            uint32_t reset_counter = game.ui.full_reset_counter;
+            SDL_UnlockMutex(game.mutex);
+            if (reset_counter != last_full_reset_counter) {
+                last_full_reset_counter = reset_counter;
+                if (ai_worker_ready) {
+                    ai_worker_reset();
+                } else {
+                    ai_worker_ready = ai_worker_init();
+                    if (!ai_worker_ready) {
+                        SDL_Log("AI worker unavailable after full reset; falling back to synchronous AI.");
+                    }
+                }
+            }
+        }
         if (want_text_input && !text_input_active) {
             SDL_StartTextInput();
             text_input_active = true;
@@ -255,11 +261,15 @@ int main(int argc, char **argv) {
         }
 
         if (test_mode || live_replay_active) {
-            game.ui.show_main_menu = false;
-            game.ui.show_pause_menu = false;
+            if (!game.ui.show_main_menu) {
+                game.ui.show_main_menu = false;
+                if (!game.ui.replay_paused) {
+                    game.ui.show_pause_menu = false;
+                }
+            }
         }
 
-        bool replay_mode_active = (replay_path != NULL);
+        bool replay_mode_active = false;
         if (SDL_LockMutex(game.mutex) == 0) {
             if (game.ui.replay_request_pending) {
                 char request_path[256];
@@ -305,6 +315,11 @@ int main(int argc, char **argv) {
                 SDL_UnlockMutex(game.mutex);
             }
         }
+        if (replay_mode_active && replay_global_recording()) {
+            replay_global_stop();
+            game.autosave_last_turn = -1;
+            game.autosave_terminal_saved = false;
+        }
 
         if (SDL_LockMutex(game.mutex) != 0) {
             SDL_Log("SDL_LockMutex failed: %s", SDL_GetError());
@@ -339,29 +354,30 @@ int main(int argc, char **argv) {
         }
 
         if (live_replay_active) {
-            Uint32 elapsed = SDL_GetTicks() - live_replay_start_ticks;
-            // Synthetic pacing for recorded/PGN replays: 250ms between events.
-            const Uint32 replay_step_ms = 250;
-            while (live_replay_index < live_replay.event_count) {
-                Uint32 target = live_replay_index * replay_step_ms;
-                if (elapsed < target) break;
-                const ReplayEvent *ev = &live_replay.events[live_replay_index];
-                if (!replay_apply_event(ev, &game, true, test_mode)) {
-                    if (test_mode) {
-                        running = false;
-                    }
-                    break;
-                }
-                live_replay_index++;
-            }
-            if (live_replay_index >= live_replay.event_count) {
+            if (!game.ui.replay_mode_active) {
                 live_replay_active = false;
+                replay_free(&live_replay);
+                memset(&live_replay, 0, sizeof(live_replay));
+            } else if (!game.ui.replay_paused) {
+                Uint32 elapsed = SDL_GetTicks() - live_replay_start_ticks;
+                // Synthetic pacing for recorded/PGN replays: 250ms between events.
+                const Uint32 replay_step_ms = 250;
+                while (live_replay_index < live_replay.event_count) {
+                    Uint32 target = live_replay_index * replay_step_ms;
+                    if (elapsed < target) break;
+                    const ReplayEvent *ev = &live_replay.events[live_replay_index];
+                    if (!replay_apply_event(ev, &game, true, test_mode)) {
+                        if (test_mode) {
+                            running = false;
+                        }
+                        break;
+                    }
+                    live_replay_index++;
+                }
+                if (live_replay_index >= live_replay.event_count) {
+                    live_replay_active = false;
+                }
             }
-        }
-        if (live_replay_active && !game.ui.replay_mode_active) {
-            live_replay_active = false;
-            replay_free(&live_replay);
-            memset(&live_replay, 0, sizeof(live_replay));
         }
 
         if (render_ready) {
@@ -456,7 +472,7 @@ int main(int argc, char **argv) {
             }
         }
 
-        if (!replay_mode_active && replay_global_recording()) {
+        if (!replay_mode_active && record_to_file && replay_global_recording()) {
             bool should_save = false;
             bool is_terminal = false;
             int turn_number = 0;
@@ -475,12 +491,11 @@ int main(int argc, char **argv) {
             }
             if (should_save) {
                 ensure_replay_dir();
-                const char *path = record_path ? record_path : auto_record_path;
-                if (!replay_global_append(path)) {
+                if (!replay_global_append(record_path)) {
                     SDL_Log("Failed to autosave replay");
                 }
                 if (game.autosave_terminal_saved) {
-                    if (!replay_global_write_end(path)) {
+                    if (!replay_global_write_end(record_path)) {
                         SDL_Log("Failed to finalize replay");
                     }
                 }
@@ -541,8 +556,8 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (replay_global_recording()) {
-        const char *path = record_path ? record_path : auto_record_path;
+    if (record_to_file && replay_global_recording()) {
+        const char *path = record_path;
         if (!game.autosave_terminal_saved) {
             ensure_replay_dir();
             if (!replay_global_append(path)) {

@@ -78,6 +78,10 @@ void replay_global_stop(void) {
     replay_recorder_end(&g_recorder);
 }
 
+void replay_global_load(const ReplayData *data, uint32_t now_ticks) {
+    replay_recorder_load(&g_recorder, data, now_ticks);
+}
+
 bool replay_global_append(const char *path) {
     return replay_recorder_append_events(&g_recorder, path);
 }
@@ -174,6 +178,33 @@ void replay_recorder_end(ReplayRecorder *rec) {
     if (!rec) return;
     free(rec->events);
     memset(rec, 0, sizeof(*rec));
+}
+
+void replay_recorder_load(ReplayRecorder *rec, const ReplayData *data, uint32_t now_ticks) {
+    if (!rec || !data) return;
+    replay_recorder_end(rec);
+    memset(rec, 0, sizeof(*rec));
+    rec->start = data->start;
+    rec->recording = true;
+    rec->event_count = data->event_count;
+    rec->event_capacity = data->event_count;
+    if (data->event_count > 0) {
+        rec->events = (ReplayEvent *)malloc(data->event_count * sizeof(ReplayEvent));
+        if (rec->events) {
+            memcpy(rec->events, data->events, data->event_count * sizeof(ReplayEvent));
+        } else {
+            rec->event_count = 0;
+            rec->event_capacity = 0;
+        }
+    }
+    uint32_t last_t = 0;
+    if (data->event_count > 0) {
+        last_t = data->events[data->event_count - 1].t_ms;
+    }
+    rec->start_ticks = (now_ticks > last_t) ? (now_ticks - last_t) : 0;
+    rec->saved_events = rec->event_count;
+    rec->header_written = false;
+    rec->end_written = false;
 }
 
 bool replay_recorder_write_header(ReplayRecorder *rec, const char *path) {

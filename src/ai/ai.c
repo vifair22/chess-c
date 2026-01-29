@@ -75,6 +75,7 @@ typedef struct {
     int depth;
     uint32_t position_key;
     int turn_number;
+    uint32_t generation;
 } AiJob;
 
 typedef struct {
@@ -94,6 +95,8 @@ typedef struct {
     uint64_t compute_start_counter;
     double compute_freq;
     AiWorkerStage stage;
+    uint32_t generation;
+    uint32_t result_generation;
 } AiWorker;
 
 static AiWorker g_ai_worker;
@@ -625,6 +628,7 @@ static int ai_worker_thread(void *userdata) {
         worker->result.position_key = job->position_key;
         worker->result.valid = ok;
         worker->has_result = true;
+        worker->result_generation = job->generation;
         worker->busy = false;
         worker->last_compute_ms = elapsed_ms;
         worker->last_reported_ms = elapsed_ms;
@@ -656,6 +660,8 @@ bool ai_worker_init(void) {
     g_ai_worker.compute_start_counter = 0;
     g_ai_worker.compute_freq = (double)SDL_GetPerformanceFrequency();
     g_ai_worker.stage = AI_STAGE_IDLE;
+    g_ai_worker.generation = 0;
+    g_ai_worker.result_generation = 0;
     g_ai_worker.thread = SDL_CreateThread(ai_worker_thread, "ai_worker", &g_ai_worker);
     if (!g_ai_worker.thread) {
         SDL_Log("AI worker thread creation failed: %s", SDL_GetError());
@@ -687,6 +693,19 @@ void ai_worker_shutdown(void) {
     memset(&g_ai_worker, 0, sizeof(g_ai_worker));
 }
 
+void ai_worker_reset(void) {
+    if (!g_ai_worker.mutex) {
+        return;
+    }
+    g_ai_abort = true;
+    SDL_LockMutex(g_ai_worker.mutex);
+    g_ai_worker.generation++;
+    g_ai_worker.has_job = false;
+    g_ai_worker.has_result = false;
+    g_ai_worker.stage = g_ai_worker.busy ? g_ai_worker.stage : AI_STAGE_IDLE;
+    SDL_UnlockMutex(g_ai_worker.mutex);
+}
+
 bool ai_request_move(const GameState *state) {
     if (!state || !g_ai_worker.mutex) return false;
     SDL_LockMutex(g_ai_worker.mutex);
@@ -698,6 +717,7 @@ bool ai_request_move(const GameState *state) {
     g_ai_worker.job.depth = state->ai.depth;
     g_ai_worker.job.position_key = ai_position_key(state);
     g_ai_worker.job.turn_number = state->match.turn_number;
+    g_ai_worker.job.generation = g_ai_worker.generation;
     g_ai_worker.has_job = true;
     g_ai_worker.stage = AI_STAGE_QUEUED;
     SDL_CondSignal(g_ai_worker.cond);
@@ -709,6 +729,11 @@ bool ai_poll_move(AiResult *out) {
     if (!out || !g_ai_worker.mutex) return false;
     SDL_LockMutex(g_ai_worker.mutex);
     if (!g_ai_worker.has_result) {
+        SDL_UnlockMutex(g_ai_worker.mutex);
+        return false;
+    }
+    if (g_ai_worker.result_generation != g_ai_worker.generation) {
+        g_ai_worker.has_result = false;
         SDL_UnlockMutex(g_ai_worker.mutex);
         return false;
     }

@@ -216,12 +216,23 @@ void mouse_handle_event(GameState *game, const RenderContext *render, const SDL_
             int action = ui_handle_save_modal_click(game, event->button.x, event->button.y,
                 render->surface.window_width, render->surface.window_height);
             if (action == 1) {
-                if (save_write_named(game, game->ui.save_name)) {
+                bool ok = false;
+                if (game->ui.save_is_replay) {
+                    ok = replay_write_named(game, game->ui.save_name);
+                } else {
+                    ok = save_write_named(game, game->ui.save_name);
+                }
+                if (ok) {
                     handled = true;
                     game->ui.show_save_modal = false;
+                    if (game->ui.save_is_replay) {
+                        game->ui.replay_saved = true;
+                    }
+                    game->ui.save_is_replay = false;
                 }
             } else if (action == -1) {
                 game->ui.show_save_modal = false;
+                game->ui.save_is_replay = false;
                 handled = true;
             }
         } else if (game->ui.show_load_menu) {
@@ -262,6 +273,8 @@ void mouse_handle_event(GameState *game, const RenderContext *render, const SDL_
             if (action == 1 && idx >= 0 && idx < game->ui.load_count) {
                 game->ui.load_selected = idx;
                 game->ui.show_load_confirm = true;
+                game->ui.menu_keyboard_active = false;
+                game->ui.menu_mouse_active = true;
                 handled = true;
             } else if (action == -1) {
                 game->ui.show_load_menu = false;
@@ -305,6 +318,28 @@ void mouse_handle_event(GameState *game, const RenderContext *render, const SDL_
             return;
         }
         return; // ignore board clicks while menus or win screen are open
+    }
+
+    RenderPromoLayout promo_layout = {0};
+    if (render_get_promo_layout(render, game, &promo_layout) && promo_layout.visible) {
+        const char white_labels[4] = {'Q', 'R', 'B', 'N'};
+        const char black_labels[4] = {'q', 'r', 'b', 'n'};
+        for (int i = 0; i < 4; ++i) {
+            if (point_in_rect(event->button.x, event->button.y, promo_layout.white_buttons[i])) {
+                if (SDL_LockMutex(game->mutex) == 0) {
+                    game->variant.promotion_choice_white = white_labels[i];
+                    SDL_UnlockMutex(game->mutex);
+                }
+                return;
+            }
+            if (point_in_rect(event->button.x, event->button.y, promo_layout.black_buttons[i])) {
+                if (SDL_LockMutex(game->mutex) == 0) {
+                    game->variant.promotion_choice_black = black_labels[i];
+                    SDL_UnlockMutex(game->mutex);
+                }
+                return;
+            }
+        }
     }
 
     BoardGeometry geo = render_compute_board_geometry(render);

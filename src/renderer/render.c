@@ -177,6 +177,93 @@ static void draw_panel_box(SDL_Renderer *renderer, SDL_Rect rect, SDL_Color fill
     }
 }
 
+typedef struct {
+    SDL_Rect box;
+    int text_scale;
+    int list_scale;
+    int gap;
+    int line_h;
+    int list_line_h;
+} TurnPanelLayout;
+
+static TurnPanelLayout turn_panel_layout(const GameState *state, const BoardGeometry *geo) {
+    TurnPanelLayout layout = {0};
+    if (!state || !geo || geo->turn_margin <= 0) return layout;
+
+    int text_scale = geo->cell / 20;
+    if (text_scale < 2) text_scale = 2;
+    int line_h = (7 + 1) * text_scale;
+    int gap = text_scale;
+    if (gap < 2) gap = 2;
+    int list_scale = text_scale - 1;
+    if (list_scale < 1) list_scale = 1;
+    int list_line_h = (7 + 1) * list_scale;
+
+    int label_w = measure_text_width("TURN: WHITE", text_scale);
+    int min_box_w = label_w + gap * 3;
+    int max_box_w = geo->turn_margin - gap * 2;
+    if (max_box_w < min_box_w) max_box_w = min_box_w;
+    int box_w = max_box_w;
+    int right_x = geo->offset_x + geo->board_size + gap;
+    int box_x = right_x + geo->capture_margin + gap;
+    int box_y = geo->offset_y;
+    int box_h = geo->board_size;
+
+    layout.box = (SDL_Rect){box_x, box_y, box_w, box_h};
+    layout.text_scale = text_scale;
+    layout.list_scale = list_scale;
+    layout.gap = gap;
+    layout.line_h = line_h;
+    layout.list_line_h = list_line_h;
+    return layout;
+}
+
+bool render_get_promo_layout(const RenderContext *ctx, const GameState *state, RenderPromoLayout *out) {
+    if (!ctx || !state || !out) return false;
+    memset(out, 0, sizeof(*out));
+
+    BoardGeometry geo = render_compute_board_geometry(ctx);
+    TurnPanelLayout layout = turn_panel_layout(state, &geo);
+    if (layout.box.w <= 0 || layout.box.h <= 0) {
+        return false;
+    }
+
+    out->panel_box = layout.box;
+    out->text_scale = layout.text_scale;
+    out->list_scale = layout.list_scale;
+    out->gap = layout.gap;
+    out->line_h = layout.line_h;
+    out->list_line_h = layout.list_line_h;
+
+    int y = layout.box.y + layout.gap * 2 + layout.line_h + layout.gap;
+    out->title_y = y;
+    y += layout.list_line_h + layout.gap;
+
+    out->label_x = layout.box.x + layout.gap;
+    int label_w = measure_text_width("W:", layout.list_scale);
+    int btn_gap = layout.gap;
+    int avail = layout.box.w - layout.gap * 2 - label_w - btn_gap;
+    int btn_w = (avail - 3 * btn_gap) / 4;
+    if (btn_w < layout.list_line_h) btn_w = layout.list_line_h;
+    int btn_h = layout.list_line_h + 2;
+    int row_x = out->label_x + label_w + btn_gap;
+    int row1_y = y;
+    int row2_y = y + btn_h + layout.gap;
+
+    out->white_label_y = row1_y + (btn_h - layout.list_line_h) / 2;
+    out->black_label_y = row2_y + (btn_h - layout.list_line_h) / 2;
+
+    for (int i = 0; i < 4; ++i) {
+        int x = row_x + i * (btn_w + btn_gap);
+        out->white_buttons[i] = (SDL_Rect){x, row1_y, btn_w, btn_h};
+        out->black_buttons[i] = (SDL_Rect){x, row2_y, btn_w, btn_h};
+    }
+
+    out->list_start_y = row2_y + btn_h + layout.gap;
+    out->visible = (strcmp(state->match.mode, "chess") == 0);
+    return true;
+}
+
 static void draw_checker_piece(SDL_Renderer *renderer, char piece, const SDL_Rect *cell_rect, SDL_Color color) {
     int radius = cell_rect->w / 2 - cell_rect->w / 8;
     if (radius < 6) radius = cell_rect->w / 3;
@@ -405,27 +492,17 @@ static void draw_turn_indicator(RenderContext *ctx, const GameState *state, Game
     if (!ctx || !state || !ui_state || !geo) return;
     if (geo->turn_margin <= 0) return;
 
-    int text_scale = geo->cell / 20;
-    if (text_scale < 2) text_scale = 2;
-    int line_h = (7 + 1) * text_scale;
-    int gap = text_scale;
-    if (gap < 2) gap = 2;
-
-    int icon_cell = 7 * text_scale;
-    int capture_w = geo->capture_margin;
-    int label_w = measure_text_width("TURN: WHITE", text_scale);
-    int text_w = label_w;
-    int box_w = text_w + gap * 3;
-    int right_x = geo->offset_x + geo->board_size + gap;
-    int min_x = right_x + capture_w + gap;
-    int max_x = right_x + capture_w + geo->turn_margin - gap - box_w;
-    int box_x = max_x;
-    if (box_x < min_x) box_x = min_x;
-    int box_y = geo->offset_y;
-    int box_h = geo->board_size;
+    TurnPanelLayout layout = turn_panel_layout(state, geo);
+    int text_scale = layout.text_scale;
+    int line_h = layout.line_h;
+    int gap = layout.gap;
+    int box_x = layout.box.x;
+    int box_y = layout.box.y;
+    int box_w = layout.box.w;
+    int box_h = layout.box.h;
     (void)ctx;
 
-    SDL_Rect box = {box_x, box_y, box_w, box_h};
+    SDL_Rect box = layout.box;
     SDL_Color bg = kPalette.panel_backdrop;
     bg.a = 160;
     draw_panel_box(ctx->surface.renderer, box, bg, kPalette.panel_border, true);
@@ -433,13 +510,53 @@ static void draw_turn_indicator(RenderContext *ctx, const GameState *state, Game
     const char *turn = state->match.white_to_move ? "WHITE" : "BLACK";
     char text[32];
     snprintf(text, sizeof(text), "TURN: %s", turn);
+    int label_w = measure_text_width("TURN: WHITE", text_scale);
     int x1 = box_x + (box_w - label_w) / 2;
     int y = box_y + gap * 2;
     draw_text(ctx->surface.renderer, x1, y, text_scale, kPalette.panel_text, text);
 
-    int list_scale = text_scale - 1;
-    if (list_scale < 1) list_scale = 1;
-    int list_line_h = (7 + 1) * list_scale;
+    int list_scale = layout.list_scale;
+    int list_line_h = layout.list_line_h;
+    int text_x = box_x + gap;
+    RenderPromoLayout promo = {0};
+    if (render_get_promo_layout(ctx, state, &promo) && promo.visible) {
+        draw_text(ctx->surface.renderer, promo.label_x, promo.title_y, list_scale, kPalette.panel_text, "PROMOTION");
+        draw_text(ctx->surface.renderer, promo.label_x, promo.white_label_y, list_scale, kPalette.label_text, "W:");
+        draw_text(ctx->surface.renderer, promo.label_x, promo.black_label_y, list_scale, kPalette.label_text, "B:");
+
+        const char white_labels[4] = {'Q', 'R', 'B', 'N'};
+        const char black_labels[4] = {'q', 'r', 'b', 'n'};
+        char white_sel = state->variant.promotion_choice_white ? state->variant.promotion_choice_white : 'Q';
+        char black_sel = state->variant.promotion_choice_black ? state->variant.promotion_choice_black : 'q';
+        SDL_Color normal = kPalette.panel_fill;
+        normal.a = 220;
+        SDL_Color selected = kPalette.hover_fill;
+        selected.a = 220;
+        for (int i = 0; i < 4; ++i) {
+            SDL_Color fill = (white_sel == white_labels[i]) ? selected : normal;
+            draw_panel_box(ctx->surface.renderer, promo.white_buttons[i], fill, kPalette.panel_border, true);
+            SDL_Texture *tex = texture_for_piece(ctx, white_labels[i], false);
+            int cx = promo.white_buttons[i].x + promo.white_buttons[i].w / 2;
+            int cy = promo.white_buttons[i].y + promo.white_buttons[i].h / 2;
+            int cell = promo.white_buttons[i].w < promo.white_buttons[i].h ? promo.white_buttons[i].w : promo.white_buttons[i].h;
+            if (tex) {
+                draw_piece_texture(ctx->surface.renderer, tex, cell - 2, cx, cy);
+            }
+
+            fill = (black_sel == black_labels[i]) ? selected : normal;
+            draw_panel_box(ctx->surface.renderer, promo.black_buttons[i], fill, kPalette.panel_border, true);
+            tex = texture_for_piece(ctx, black_labels[i], false);
+            cx = promo.black_buttons[i].x + promo.black_buttons[i].w / 2;
+            cy = promo.black_buttons[i].y + promo.black_buttons[i].h / 2;
+            cell = promo.black_buttons[i].w < promo.black_buttons[i].h ? promo.black_buttons[i].w : promo.black_buttons[i].h;
+            if (tex) {
+                draw_piece_texture(ctx->surface.renderer, tex, cell - 2, cx, cy);
+            }
+        }
+        y = promo.list_start_y;
+    } else {
+        y += line_h + gap;
+    }
     int max_lines = (box_h - y - gap) / list_line_h;
     if (max_lines < 1) return;
     int total = state->move_history_len;
@@ -453,7 +570,6 @@ static void draw_turn_indicator(RenderContext *ctx, const GameState *state, Game
     if (scroll < 0) scroll = 0;
     if (scroll > max_scroll) scroll = max_scroll;
     int start = total > max_lines ? (total - max_lines - scroll) : 0;
-    y += line_h + gap;
     int bar_w = 4;
     int bar_x = box_x + box_w - bar_w - gap;
     int bar_y = y;
@@ -477,7 +593,6 @@ static void draw_turn_indicator(RenderContext *ctx, const GameState *state, Game
         SDL_RenderFillRect(ctx->surface.renderer, &thumb_rect);
     }
 
-    int text_x = box_x + gap;
     for (int i = start; i < total; ++i) {
         const MoveRecord *rec = &state->move_history[i];
         char line[32];
