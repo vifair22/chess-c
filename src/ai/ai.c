@@ -54,7 +54,11 @@ static AiMove *ai_get_move_buf(int ply, bool *out_heap) {
         return g_ai_move_buffer[ply];
     }
     if (out_heap) *out_heap = true;
-    return (AiMove *)malloc(sizeof(AiMove) * AI_MAX_MOVES);
+    AiMove *result = (AiMove *)malloc(sizeof(AiMove) * AI_MAX_MOVES);
+    if (!result) {
+        SDL_Log("Failed to allocate AI move buffer for ply %d", ply);
+    }
+    return result;
 }
 
 static GameState *ai_get_state_buf(int ply, bool *out_heap) {
@@ -63,7 +67,11 @@ static GameState *ai_get_state_buf(int ply, bool *out_heap) {
         return &g_ai_state_buffer[ply];
     }
     if (out_heap) *out_heap = true;
-    return (GameState *)malloc(sizeof(GameState));
+    GameState *result = (GameState *)malloc(sizeof(GameState));
+    if (!result) {
+        SDL_Log("Failed to allocate AI state buffer for ply %d", ply);
+    }
+    return result;
 }
 
 static inline bool ai_time_up(void) {

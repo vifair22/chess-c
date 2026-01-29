@@ -13,6 +13,7 @@ static void ensure_capacity(ReplayRecorder *rec) {
     size_t new_cap = rec->event_capacity ? rec->event_capacity * 2 : 64;
     ReplayEvent *new_events = (ReplayEvent *)realloc(rec->events, new_cap * sizeof(ReplayEvent));
     if (!new_events) {
+        SDL_Log("Failed to allocate memory for replay events (capacity=%zu)", new_cap);
         return;
     }
     rec->events = new_events;

@@ -2,13 +2,11 @@
 
 #include <SDL.h>
 #include <ctype.h>
-#include <direct.h>
-#include <errno.h>
-#include <io.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "save/replay.h"
+#include "core/filesystem.h"
 
 static const char *replay_event_type_label(ReplayEventType type) {
     switch (type) {
@@ -26,18 +24,14 @@ static const char *replay_event_type_label(ReplayEventType type) {
 }
 
 static void ensure_saves_dir(void) {
-    if (_mkdir("saves") != 0) {
-        if (errno != EEXIST) {
-            SDL_Log("Failed to create saves directory (errno=%d)", errno);
-        }
+    if (!fs_mkdir("saves")) {
+        SDL_Log("Failed to create saves directory");
     }
 }
 
 static void ensure_replays_dir(void) {
-    if (_mkdir("replays") != 0) {
-        if (errno != EEXIST) {
-            SDL_Log("Failed to create replays directory (errno=%d)", errno);
-        }
+    if (!fs_mkdir("replays")) {
+        SDL_Log("Failed to create replays directory");
     }
 }
 
@@ -57,22 +51,25 @@ static bool refresh_list(GameState *state, const char *pattern) {
     state->ui.load_count = 0;
     state->ui.load_scroll = 0;
 
-    struct _finddata_t entry;
-    intptr_t handle = _findfirst(pattern, &entry);
-    if (handle == -1) {
-        return true;
+    FsFileList file_list;
+    if (!fs_list_files(pattern, &file_list)) {
+        return true; // Empty list is OK
     }
-    do {
-        if (state->ui.load_count >= (int)(sizeof(state->ui.load_names) / sizeof(state->ui.load_names[0]))) {
-            break;
-        }
-        strncpy(state->ui.load_names[state->ui.load_count], entry.name, sizeof(state->ui.load_names[0]) - 1);
-        state->ui.load_names[state->ui.load_count][sizeof(state->ui.load_names[0]) - 1] = '\0';
-        state->ui.load_times[state->ui.load_count] = entry.time_write;
-        state->ui.load_count += 1;
-    } while (_findnext(handle, &entry) == 0);
-    _findclose(handle);
 
+    int max_files = (int)(sizeof(state->ui.load_names) / sizeof(state->ui.load_names[0]));
+    for (int i = 0; i < file_list.count && state->ui.load_count < max_files; ++i) {
+        FsFileEntry *entry = &file_list.entries[i];
+        if (entry->is_directory) continue; // Skip directories
+
+        strncpy(state->ui.load_names[state->ui.load_count], entry->name, sizeof(state->ui.load_names[0]) - 1);
+        state->ui.load_names[state->ui.load_count][sizeof(state->ui.load_names[0]) - 1] = '\0';
+        state->ui.load_times[state->ui.load_count] = entry->modified_time;
+        state->ui.load_count += 1;
+    }
+
+    fs_file_list_free(&file_list);
+
+    // Sort by modification time (newest first)
     for (int i = 0; i < state->ui.load_count - 1; ++i) {
         int best = i;
         for (int j = i + 1; j < state->ui.load_count; ++j) {
@@ -97,13 +94,13 @@ static bool refresh_list(GameState *state, const char *pattern) {
 bool save_refresh_list(GameState *state) {
     if (!state) return false;
     ensure_saves_dir();
-    return refresh_list(state, "saves\\*.save");
+    return refresh_list(state, "saves/*.save");
 }
 
 bool replay_refresh_list(GameState *state) {
     if (!state) return false;
     ensure_replays_dir();
-    return refresh_list(state, "replays\\*.replay");
+    return refresh_list(state, "replays/*.replay");
 }
 
 bool save_write_named(GameState *state, const char *name) {

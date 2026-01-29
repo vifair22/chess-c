@@ -61,6 +61,10 @@ add_executable(chess-c
     src/ai/ai.c
     src/ai/search.c
     src/game/logic.c
+    src/game/state.c
+    src/game/moves.c
+    src/game/chess_rules.c
+    src/game/checkers_rules.c
     src/renderer/draw.c
     src/renderer/render.c
     src/renderer/palette.c
@@ -74,6 +78,7 @@ add_executable(chess-c
     src/save/replay.c
     src/save/replay_parse.c
     src/audio/audio.c
+    src/core/filesystem.c
 )
 
 target_include_directories(chess-c PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
