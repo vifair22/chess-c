@@ -33,6 +33,14 @@ static void ensure_saves_dir(void) {
     }
 }
 
+static void ensure_replays_dir(void) {
+    if (_mkdir("replays") != 0) {
+        if (errno != EEXIST) {
+            SDL_Log("Failed to create replays directory (errno=%d)", errno);
+        }
+    }
+}
+
 static void sanitize_name(const char *name, char *out, size_t out_cap) {
     size_t len = 0;
     for (const char *p = name; *p && len + 1 < out_cap; ++p) {
@@ -44,14 +52,13 @@ static void sanitize_name(const char *name, char *out, size_t out_cap) {
     out[len] = '\0';
 }
 
-bool save_refresh_list(GameState *state) {
-    if (!state) return false;
-    ensure_saves_dir();
+static bool refresh_list(GameState *state, const char *pattern) {
+    if (!state || !pattern) return false;
     state->ui.load_count = 0;
     state->ui.load_scroll = 0;
 
     struct _finddata_t entry;
-    intptr_t handle = _findfirst("saves\\*.replay", &entry);
+    intptr_t handle = _findfirst(pattern, &entry);
     if (handle == -1) {
         return true;
     }
@@ -85,6 +92,18 @@ bool save_refresh_list(GameState *state) {
         }
     }
     return true;
+}
+
+bool save_refresh_list(GameState *state) {
+    if (!state) return false;
+    ensure_saves_dir();
+    return refresh_list(state, "saves\\*.replay");
+}
+
+bool replay_refresh_list(GameState *state) {
+    if (!state) return false;
+    ensure_replays_dir();
+    return refresh_list(state, "replays\\*.replay");
 }
 
 bool save_write_named(GameState *state, const char *name) {
@@ -162,6 +181,7 @@ bool save_load_named(GameState *state, const char *filename) {
     state->ui.show_load_confirm = false;
     state->ui.load_needs_refresh = false;
     state->ui.show_new_menu = false;
+    state->ui.replay_mode_active = false;
 
     replay_global_stop();
     replay_global_start(state, SDL_GetTicks());
@@ -169,5 +189,13 @@ bool save_load_named(GameState *state, const char *filename) {
     state->autosave_last_turn = -1;
     state->autosave_terminal_saved = false;
 
+    return true;
+}
+
+bool replay_request_named(GameState *state, const char *filename) {
+    if (!state || !filename || !filename[0]) return false;
+    ensure_replays_dir();
+    snprintf(state->ui.replay_request, sizeof(state->ui.replay_request), "replays/%s", filename);
+    state->ui.replay_request_pending = true;
     return true;
 }

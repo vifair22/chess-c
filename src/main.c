@@ -97,7 +97,7 @@ int main(int argc, char **argv) {
         return 2;
     }
 
-    RenderContext render = {0};
+    static RenderContext render = {0};
     static GameState game = {0};
     bool render_ready = false;
 
@@ -216,6 +216,7 @@ int main(int argc, char **argv) {
             replay_seed_game(&live_replay.start, &game);
             game.ui.show_main_menu = false;
             game.ui.show_pause_menu = false;
+            game.ui.replay_mode_active = true;
             live_replay_active = true;
             live_replay_start_ticks = SDL_GetTicks();
             live_replay_index = 0;
@@ -256,6 +257,53 @@ int main(int argc, char **argv) {
         if (test_mode || live_replay_active) {
             game.ui.show_main_menu = false;
             game.ui.show_pause_menu = false;
+        }
+
+        bool replay_mode_active = (replay_path != NULL);
+        if (SDL_LockMutex(game.mutex) == 0) {
+            if (game.ui.replay_request_pending) {
+                char request_path[256];
+                strncpy(request_path, game.ui.replay_request, sizeof(request_path) - 1);
+                request_path[sizeof(request_path) - 1] = '\0';
+                game.ui.replay_request_pending = false;
+                SDL_UnlockMutex(game.mutex);
+
+                if (live_replay.event_count > 0) {
+                    replay_free(&live_replay);
+                    memset(&live_replay, 0, sizeof(live_replay));
+                }
+                if (!replay_load(request_path, &live_replay)) {
+                    SDL_Log("Failed to load replay: %s", request_path);
+                    if (SDL_LockMutex(game.mutex) == 0) {
+                        game.ui.show_main_menu = true;
+                        game.ui.show_pause_menu = false;
+                        game.ui.replay_mode_active = false;
+                        SDL_UnlockMutex(game.mutex);
+                    }
+                } else {
+                    replay_seed_game(&live_replay.start, &game);
+                    if (SDL_LockMutex(game.mutex) == 0) {
+                        game.ui.show_main_menu = false;
+                        game.ui.show_pause_menu = false;
+                        game.ui.show_load_menu = false;
+                        game.ui.show_load_confirm = false;
+                        game.ui.show_new_menu = false;
+                        game.ui.replay_mode_active = true;
+                        SDL_UnlockMutex(game.mutex);
+                    }
+                    replay_global_stop();
+                    live_replay_active = true;
+                    live_replay_start_ticks = SDL_GetTicks();
+                    live_replay_index = 0;
+                    replay_print_stats(&live_replay);
+                    replay_mode_active = true;
+                }
+            } else {
+                if (game.ui.replay_mode_active) {
+                    replay_mode_active = true;
+                }
+                SDL_UnlockMutex(game.mutex);
+            }
         }
 
         if (SDL_LockMutex(game.mutex) != 0) {
@@ -310,12 +358,17 @@ int main(int argc, char **argv) {
                 live_replay_active = false;
             }
         }
+        if (live_replay_active && !game.ui.replay_mode_active) {
+            live_replay_active = false;
+            replay_free(&live_replay);
+            memset(&live_replay, 0, sizeof(live_replay));
+        }
 
         if (render_ready) {
             render_frame(&render, &game);
         }
 
-        if (!replay_path) {
+        if (!replay_mode_active) {
             if (ai_worker_ready) {
                 bool can_ai_move = !render_ready || !render.anim.active;
                 if (can_ai_move && SDL_LockMutex(game.mutex) == 0) {
@@ -403,7 +456,7 @@ int main(int argc, char **argv) {
             }
         }
 
-        if (!replay_path && replay_global_recording()) {
+        if (!replay_mode_active && replay_global_recording()) {
             bool should_save = false;
             bool is_terminal = false;
             int turn_number = 0;

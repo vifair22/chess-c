@@ -44,6 +44,7 @@ typedef struct {
     RenderAssets assets;
     RenderAnim anim;
     RenderOverlays overlays;
+    GameState snapshot;
     int last_turn_number;
 } RenderContext;
 

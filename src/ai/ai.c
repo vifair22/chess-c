@@ -6,17 +6,12 @@
 
 #include "save/replay.h"
 #include "ai/search.h"
+#include "core/platform.h"
 #define AI_MAX_MOVES 256
 #define AI_INF 1000000
 #define AI_MATE 100000
 #define AI_TIME_LIMIT_MS 10000
 #define AI_TIME_MAX_DEPTH 32
-
-#if defined(_MSC_VER)
-#define THREAD_LOCAL __declspec(thread)
-#else
-#define THREAD_LOCAL _Thread_local
-#endif
 
 #define AI_BUF_PLY (AI_TIME_MAX_DEPTH + 8)
 
@@ -112,38 +107,9 @@ static void ai_worker_set_stage(AiWorkerStage stage) {
     SDL_UnlockMutex(g_ai_worker.mutex);
 }
 
-static void ai_clone_state(GameState *dst, const GameState *src) {
-    if (!dst || !src) return;
-    memset(dst, 0, sizeof(*dst));
-    dst->board_state = src->board_state;
-    dst->match = src->match;
-    dst->variant = src->variant;
-    dst->chess = src->chess;
-    dst->moves.selected = src->moves.selected;
-    dst->moves.hover_pos = (BoardPos){-1, -1};
-    dst->move_history_len = 0;
-    memset(dst->move_history, 0, sizeof(dst->move_history));
-    dst->mutex = NULL;
-    dst->snapshots = NULL;
-    dst->snapshot_len = 0;
-    dst->snapshot_cap = 0;
-}
-
 static void ai_snapshot_state(GameState *dst, const GameState *src) {
     if (!dst || !src) return;
-    memset(dst, 0, sizeof(*dst));
-    dst->board_state = src->board_state;
-    dst->match = src->match;
-    dst->variant = src->variant;
-    dst->chess = src->chess;
-    dst->moves.selected = src->moves.selected;
-    dst->moves.hover_pos = (BoardPos){-1, -1};
-    dst->move_history_len = 0;
-    memset(dst->move_history, 0, sizeof(dst->move_history));
-    dst->mutex = NULL;
-    dst->snapshots = NULL;
-    dst->snapshot_len = 0;
-    dst->snapshot_cap = 0;
+    game_copy_state_minimal(dst, src);
     game_clear_move_flags(dst);
 }
 
@@ -431,7 +397,7 @@ static int quiescence(GameState *state, int alpha, int beta, int ply) {
         if (!ai_move_is_capture(state, &moves[i])) {
             continue;
         }
-        ai_clone_state(next, state);
+        game_copy_state_minimal(next, state);
         if (!game_apply_move(next, moves[i].from, moves[i].to, moves[i].hint)) {
             continue;
         }
@@ -502,7 +468,7 @@ static int negamax(GameState *state, int depth, int alpha, int beta, int ply, Ai
     bool have_best = false;
 
     for (int i = 0; i < count; ++i) {
-        ai_clone_state(next, state);
+        game_copy_state_minimal(next, state);
         if (!game_apply_move(next, moves[i].from, moves[i].to, moves[i].hint)) {
             continue;
         }

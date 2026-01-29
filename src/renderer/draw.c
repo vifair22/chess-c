@@ -6,9 +6,6 @@
 #include "renderer/assets.h"
 
 static const Glyph5x7 *find_glyph(char c) {
-    if (c >= 'a' && c <= 'z') {
-        c = (char)(c - 'a' + 'A');
-    }
     for (size_t i = 0; i < kGlyphCount; ++i) {
         if (kGlyphs[i].ch == c) {
             return &kGlyphs[i];
@@ -126,4 +123,32 @@ void draw_text(SDL_Renderer *renderer, int x, int y, int scale, SDL_Color color,
         }
         x += (glyph_w + 1) * scale;
     }
+}
+
+int measure_text_width(const char *text, int scale) {
+    if (!text || scale <= 0) return 0;
+    const int glyph_w = 5;
+    int line_width = 0;
+    int max_width = 0;
+    for (const char *p = text; *p; ++p) {
+        if (*p == '\n') {
+            if (line_width > max_width) max_width = line_width;
+            line_width = 0;
+            continue;
+        }
+        line_width += (glyph_w + 1) * scale;
+    }
+    if (line_width > max_width) max_width = line_width;
+    return max_width;
+}
+
+int measure_text_lines(const char *text) {
+    if (!text || !*text) return 0;
+    int lines = 1;
+    for (const char *p = text; *p; ++p) {
+        if (*p == '\n') {
+            ++lines;
+        }
+    }
+    return lines;
 }

@@ -6,32 +6,6 @@
 #include "renderer/draw.h"
 #include "renderer/palette.h"
 
-static int measure_text_width(const char *text, int scale) {
-    const int glyph_w = 5;
-    int line_width = 0;
-    int max_width = 0;
-    for (const char *p = text; *p; ++p) {
-        if (*p == '\n') {
-            if (line_width > max_width) max_width = line_width;
-            line_width = 0;
-            continue;
-        }
-        line_width += (glyph_w + 1) * scale;
-    }
-    if (line_width > max_width) max_width = line_width;
-    return max_width;
-}
-
-static int measure_text_lines(const char *text) {
-    int lines = 1;
-    for (const char *p = text; *p; ++p) {
-        if (*p == '\n') {
-            ++lines;
-        }
-    }
-    return lines;
-}
-
 void debug_overlay_render(RenderContext *ctx, const GameState *state) {
     if (!state) return;
 

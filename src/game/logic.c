@@ -4,11 +4,7 @@
 #include <string.h>
 #include <ctype.h>
 
-#if defined(_MSC_VER)
-#define THREAD_LOCAL __declspec(thread)
-#else
-#define THREAD_LOCAL _Thread_local
-#endif
+#include "core/platform.h"
 
 #define GAME_SNAPSHOT_MAX 256
 
@@ -49,7 +45,7 @@ static bool game_mode_is(const GameState *state, const char *mode) {
     return strncmp(state->match.mode, mode, sizeof(state->match.mode)) == 0;
 }
 
-static void copy_state_minimal(GameState *dst, const GameState *src);
+void game_copy_state_minimal(GameState *dst, const GameState *src);
 static void apply_basic_move(GameState *state, int from_file, int from_rank, int to_file, int to_rank, MoveHint hint, bool update_counters);
 static void update_game_phase_chess(GameState *state);
 
@@ -81,8 +77,8 @@ static void record_capture(GameState *state, char capturer, char captured) {
 
 static bool can_piece_move_to(const GameState *state, BoardPos from, BoardPos to) {
     if (!state) return false;
-    GameState *tmp = &g_logic_tmp_primary;
-    copy_state_minimal(tmp, state);
+    GameState *tmp = &g_logic_tmp_secondary;
+    game_copy_state_minimal(tmp, state);
     game_eval_legal_moves(tmp, from.file, from.rank);
     MoveHint hint = tmp->moves.legal_moves[to.rank][to.file];
     return (hint.flags & MOVE_LEGAL) != 0;
@@ -104,6 +100,8 @@ static void build_san(const GameState *state, BoardPos from, BoardPos to, MoveHi
     } else if (hint.flags & MOVE_CASTLE_QUEEN) {
         snprintf(out, cap, "O-O-O");
     } else {
+        char from_rank = (char)('8' - from.rank);
+        char to_rank = (char)('8' - to.rank);
         bool is_pawn = (moving == 'P' || moving == 'p');
         bool is_capture = (captured != '.') || (hint.flags & MOVE_EN_PASSANT);
         char piece_char = is_pawn ? '\0' : (char)toupper((unsigned char)moving);
@@ -128,10 +126,10 @@ static void build_san(const GameState *state, BoardPos from, BoardPos to, MoveHi
             if (any_other) {
                 if (same_file && same_rank) {
                     disamb[0] = (char)('a' + from.file);
-                    disamb[1] = (char)('1' + from.rank);
+                    disamb[1] = from_rank;
                     disamb[2] = '\0';
                 } else if (same_file) {
-                    disamb[0] = (char)('1' + from.rank);
+                    disamb[0] = from_rank;
                     disamb[1] = '\0';
                 } else if (same_rank) {
                     disamb[0] = (char)('a' + from.file);
@@ -144,7 +142,7 @@ static void build_san(const GameState *state, BoardPos from, BoardPos to, MoveHi
         }
         char dest[3];
         dest[0] = (char)('a' + to.file);
-        dest[1] = (char)('1' + to.rank);
+        dest[1] = to_rank;
         dest[2] = '\0';
         char promo[4] = {0};
         if ((hint.flags & MOVE_PROMOTION) && hint.promotion) {
@@ -167,7 +165,7 @@ static void build_san(const GameState *state, BoardPos from, BoardPos to, MoveHi
         }
     }
     GameState *tmp = &g_logic_tmp_primary;
-    copy_state_minimal(tmp, state);
+    game_copy_state_minimal(tmp, state);
     apply_basic_move(tmp, from.file, from.rank, to.file, to.rank, hint, false);
     update_game_phase_chess(tmp);
     if (strncmp(tmp->match.phase, "checkmate", 9) == 0) {
@@ -207,7 +205,7 @@ static bool is_empty(const GameState *state, int file, int rank);
 static bool is_opponent_piece(const GameState *state, int file, int rank, bool white);
 static bool game_apply_move_internal(GameState *state, BoardPos from, BoardPos to, MoveHint hint, bool allow_ai_turn, const char *context);
 
-static void copy_state_minimal(GameState *dst, const GameState *src) {
+void game_copy_state_minimal(GameState *dst, const GameState *src) {
     if (!dst || !src) return;
     memset(dst, 0, sizeof(*dst));
     dst->board_state = src->board_state;
@@ -833,7 +831,7 @@ static bool mark_check_path(GameState *state, int kf, int kr, bool by_white) {
 
 static bool has_any_legal_move(const GameState *state, bool white_to_move) {
     GameState *tmp = &g_logic_tmp_primary;
-    copy_state_minimal(tmp, state);
+    game_copy_state_minimal(tmp, state);
     tmp->match.white_to_move = white_to_move;
 
     for (int rank = 0; rank < 8; ++rank) {
@@ -1247,6 +1245,7 @@ static void game_handle_click_chess(GameState *state, int file, int rank) {
             state->moves.selected.file = file;
             state->moves.selected.rank = rank;
             game_eval_legal_moves(state, file, rank);
+            state->ui.ai_highlight_suppressed = true;
         }
         return;
     }
@@ -1256,6 +1255,7 @@ static void game_handle_click_chess(GameState *state, int file, int rank) {
         state->moves.selected.file = -1;
         state->moves.selected.rank = -1;
         game_clear_move_flags(state);
+        state->ui.ai_highlight_suppressed = false;
         return;
     }
 
@@ -1267,6 +1267,7 @@ static void game_handle_click_chess(GameState *state, int file, int rank) {
         state->moves.selected.file = file;
         state->moves.selected.rank = rank;
         game_eval_legal_moves(state, file, rank);
+        state->ui.ai_highlight_suppressed = true;
         return;
     }
 
@@ -1298,6 +1299,7 @@ static void game_handle_click_checkers(GameState *state, int file, int rank) {
             state->moves.selected.file = file;
             state->moves.selected.rank = rank;
             game_eval_legal_moves_checkers(state, file, rank);
+            state->ui.ai_highlight_suppressed = true;
         }
         return;
     }
@@ -1313,6 +1315,7 @@ static void game_handle_click_checkers(GameState *state, int file, int rank) {
             state->moves.selected.file = -1;
             state->moves.selected.rank = -1;
             game_clear_move_flags(state);
+            state->ui.ai_highlight_suppressed = false;
             return;
         }
 
@@ -1323,6 +1326,7 @@ static void game_handle_click_checkers(GameState *state, int file, int rank) {
             state->moves.selected.file = file;
             state->moves.selected.rank = rank;
             game_eval_legal_moves_checkers(state, file, rank);
+            state->ui.ai_highlight_suppressed = true;
             return;
         }
     }
@@ -1366,6 +1370,12 @@ bool game_apply_move_ai(GameState *state, BoardPos from, BoardPos to, MoveHint h
             from.file, from.rank, to.file, to.rank, hint.flags,
             hint.promotion ? hint.promotion : '-');
         SDL_assert(!"AI made an invalid move");
+    }
+    if (ok) {
+        state->ui.ai_highlight_active = true;
+        state->ui.ai_highlight_suppressed = false;
+        state->ui.ai_highlight_from = from;
+        state->ui.ai_highlight_to = to;
     }
     return ok;
 }
@@ -1424,6 +1434,10 @@ static bool game_apply_move_internal(GameState *state, BoardPos from, BoardPos t
             to.file, to.rank,
             hint,
             !state->variant.checkers_must_continue);
+        if (!allow_ai_turn) {
+            state->ui.ai_highlight_active = false;
+            state->ui.ai_highlight_suppressed = false;
+        }
         return true;
     }
 
@@ -1442,6 +1456,10 @@ static bool game_apply_move_internal(GameState *state, BoardPos from, BoardPos t
     }
 
     apply_chess_move_common(state, from, to, hint);
+    if (!allow_ai_turn) {
+        state->ui.ai_highlight_active = false;
+        state->ui.ai_highlight_suppressed = false;
+    }
     return true;
 }
 
@@ -1455,7 +1473,7 @@ static void add_move_if_legal(GameState *state, int from_file, int from_rank, in
         return; // cannot capture the enemy king
     }
     GameState *tmp = &g_logic_tmp_secondary;
-    copy_state_minimal(tmp, state);
+    game_copy_state_minimal(tmp, state);
     apply_basic_move(tmp, from_file, from_rank, to_file, to_rank, hint, false);
     BoardPos king = find_king(tmp, moving_white);
     if (king.file == -1 || game_square_attacked_by(tmp, king.file, king.rank, !moving_white)) {
@@ -1702,6 +1720,7 @@ void game_reset(GameState *state, const char *mode) {
     state->ui.show_load_menu = false;
     state->ui.show_load_confirm = false;
     state->ui.load_needs_refresh = false;
+    state->ui.load_is_replay = false;
     state->ui.main_menu_index = 0;
     state->ui.new_menu_index = 0;
     state->ui.pause_menu_index = 0;
@@ -1719,6 +1738,13 @@ void game_reset(GameState *state, const char *mode) {
     state->ui.load_scroll_drag_offset = 0;
     state->ui.turn_log_scroll = 0;
     state->ui.turn_log_max_scroll = 0;
+    state->ui.replay_mode_active = false;
+    state->ui.replay_request_pending = false;
+    state->ui.replay_request[0] = '\0';
+    state->ui.ai_highlight_active = false;
+    state->ui.ai_highlight_suppressed = false;
+    state->ui.ai_highlight_from = (BoardPos){-1, -1};
+    state->ui.ai_highlight_to = (BoardPos){-1, -1};
     state->ai_last_move_ms = 0.0;
     state->ai_timing_active = false;
     state->ai_timing_start = 0;

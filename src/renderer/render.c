@@ -11,9 +11,6 @@
 #include "renderer/debug_overlay.h"
 #include "renderer/ui.h"
 
-static int measure_text_width_simple(const char *text, int scale);
-static int measure_text_lines(const char *text);
-
 static SDL_Texture *create_texture_from_sprite(SDL_Renderer *renderer, const PieceSprite *sprite) {
     if (!sprite || !renderer) {
         return NULL;
@@ -171,6 +168,15 @@ static void draw_highlight(SDL_Renderer *renderer, SDL_Rect rect, SDL_Color colo
     SDL_RenderFillRect(renderer, &rect);
 }
 
+static void draw_panel_box(SDL_Renderer *renderer, SDL_Rect rect, SDL_Color fill, SDL_Color border, bool draw_border) {
+    SDL_SetRenderDrawColor(renderer, fill.r, fill.g, fill.b, fill.a);
+    SDL_RenderFillRect(renderer, &rect);
+    if (draw_border) {
+        SDL_SetRenderDrawColor(renderer, border.r, border.g, border.b, border.a);
+        SDL_RenderDrawRect(renderer, &rect);
+    }
+}
+
 static void draw_checker_piece(SDL_Renderer *renderer, char piece, const SDL_Rect *cell_rect, SDL_Color color) {
     int radius = cell_rect->w / 2 - cell_rect->w / 8;
     if (radius < 6) radius = cell_rect->w / 3;
@@ -212,6 +218,13 @@ static void draw_board(RenderContext *ctx, const GameState *state, int offset_x,
 
             SDL_SetRenderDrawColor(renderer, square.r, square.g, square.b, square.a);
             SDL_RenderFillRect(renderer, &r);
+
+            if (state->ui.ai_highlight_active && !state->ui.ai_highlight_suppressed &&
+                ((state->ui.ai_highlight_from.file == file && state->ui.ai_highlight_from.rank == rank) ||
+                 (state->ui.ai_highlight_to.file == file && state->ui.ai_highlight_to.rank == rank))) {
+                SDL_Color c = kPalette.highlight_fill;
+                draw_highlight(renderer, r, c);
+            }
 
             if (state->moves.selected.file == file && state->moves.selected.rank == rank) {
                 draw_highlight(renderer, r, kPalette.select_fill);
@@ -379,41 +392,13 @@ static void draw_captures(RenderContext *ctx, const GameState *state, const Boar
     SDL_Rect box = {box_x, geo->offset_y, box_w, total_h};
     SDL_Color bg = kPalette.panel_fill;
     bg.a = 220;
-    SDL_SetRenderDrawColor(ctx->surface.renderer, bg.r, bg.g, bg.b, bg.a);
-    SDL_RenderFillRect(ctx->surface.renderer, &box);
-    SDL_SetRenderDrawColor(ctx->surface.renderer, kPalette.panel_border.r, kPalette.panel_border.g, kPalette.panel_border.b, kPalette.panel_border.a);
-    SDL_RenderDrawRect(ctx->surface.renderer, &box);
+    draw_panel_box(ctx->surface.renderer, box, bg, kPalette.panel_border, true);
 
     int list_x = box_x + gap;
     draw_capture_list(ctx, state, state->black_captures, state->black_captures_len,
         list_x, top_y, icon_cell, gap, is_checkers, false);
     draw_capture_list(ctx, state, state->white_captures, state->white_captures_len,
         list_x, bottom_y, icon_cell, gap, is_checkers, true);
-}
-
-static int measure_text_width_simple(const char *text, int scale) {
-    const int glyph_w = 5;
-    int line_width = 0;
-    int max_width = 0;
-    for (const char *p = text; *p; ++p) {
-        if (*p == '\n') {
-            if (line_width > max_width) max_width = line_width;
-            line_width = 0;
-            continue;
-        }
-        line_width += (glyph_w + 1) * scale;
-    }
-    if (line_width > max_width) max_width = line_width;
-    return max_width;
-}
-
-static int measure_text_lines(const char *text) {
-    if (!text || !*text) return 0;
-    int lines = 1;
-    for (const char *p = text; *p; ++p) {
-        if (*p == '\n') lines++;
-    }
-    return lines;
 }
 
 static void draw_turn_indicator(RenderContext *ctx, const GameState *state, GameState *ui_state, const BoardGeometry *geo) {
@@ -428,7 +413,7 @@ static void draw_turn_indicator(RenderContext *ctx, const GameState *state, Game
 
     int icon_cell = 7 * text_scale;
     int capture_w = geo->capture_margin;
-    int label_w = measure_text_width_simple("TURN: WHITE", text_scale);
+    int label_w = measure_text_width("TURN: WHITE", text_scale);
     int text_w = label_w;
     int box_w = text_w + gap * 3;
     int right_x = geo->offset_x + geo->board_size + gap;
@@ -443,10 +428,7 @@ static void draw_turn_indicator(RenderContext *ctx, const GameState *state, Game
     SDL_Rect box = {box_x, box_y, box_w, box_h};
     SDL_Color bg = kPalette.panel_backdrop;
     bg.a = 160;
-    SDL_SetRenderDrawColor(ctx->surface.renderer, bg.r, bg.g, bg.b, bg.a);
-    SDL_RenderFillRect(ctx->surface.renderer, &box);
-    SDL_SetRenderDrawColor(ctx->surface.renderer, kPalette.panel_border.r, kPalette.panel_border.g, kPalette.panel_border.b, kPalette.panel_border.a);
-    SDL_RenderDrawRect(ctx->surface.renderer, &box);
+    draw_panel_box(ctx->surface.renderer, box, bg, kPalette.panel_border, true);
 
     const char *turn = state->match.white_to_move ? "WHITE" : "BLACK";
     char text[32];
@@ -563,7 +545,7 @@ static void draw_debug_overlay(SDL_Renderer *renderer, const GameState *state, i
         fps,
         ms);
 
-    int text_width = measure_text_width_simple(body, scale);
+    int text_width = measure_text_width(body, scale);
     int lines = measure_text_lines(body);
     int line_height = (7 + 1) * scale;
     int text_height = lines * line_height;
@@ -574,8 +556,7 @@ static void draw_debug_overlay(SDL_Renderer *renderer, const GameState *state, i
 
     SDL_Color bg = kPalette.panel_backdrop;
     bg.a = 160; // translucent background for readability
-    SDL_SetRenderDrawColor(renderer, bg.r, bg.g, bg.b, bg.a);
-    SDL_RenderFillRect(renderer, &box);
+    draw_panel_box(renderer, box, bg, kPalette.panel_border, false);
 
     draw_text(renderer, box.x + padding, box.y + padding, scale, kPalette.panel_text, body);
 }
@@ -637,14 +618,13 @@ void render_frame(RenderContext *ctx, GameState *state) {
     if (!state || !state->mutex) {
         return;
     }
-    static GameState snapshot;
-
     if (SDL_LockMutex(state->mutex) != 0) {
         SDL_Log("SDL_LockMutex failed: %s", SDL_GetError());
         return;
     }
-    snapshot = *state;
+    ctx->snapshot = *state;
     SDL_UnlockMutex(state->mutex);
+    GameState *snapshot = &ctx->snapshot;
 
     SDL_GetWindowSize(ctx->surface.window, &ctx->surface.window_width, &ctx->surface.window_height);
 
@@ -654,40 +634,40 @@ void render_frame(RenderContext *ctx, GameState *state) {
     BoardGeometry geo = render_compute_board_geometry(ctx);
 
     // Start a piece animation when the turn number advances.
-    if (snapshot.match.turn_number != ctx->last_turn_number &&
-        snapshot.last_move.start.file >= 0 && snapshot.last_move.start.rank >= 0 &&
-        snapshot.last_move.end.file >= 0 && snapshot.last_move.end.rank >= 0) {
+    if (snapshot->match.turn_number != ctx->last_turn_number &&
+        snapshot->last_move.start.file >= 0 && snapshot->last_move.start.rank >= 0 &&
+        snapshot->last_move.end.file >= 0 && snapshot->last_move.end.rank >= 0) {
         ctx->anim.active = true;
-        ctx->anim.piece = snapshot.board_state.squares[snapshot.last_move.end.rank][snapshot.last_move.end.file].piece;
-        ctx->anim.from_file = snapshot.last_move.start.file;
-        ctx->anim.from_rank = snapshot.last_move.start.rank;
-        ctx->anim.to_file = snapshot.last_move.end.file;
-        ctx->anim.to_rank = snapshot.last_move.end.rank;
+        ctx->anim.piece = snapshot->board_state.squares[snapshot->last_move.end.rank][snapshot->last_move.end.file].piece;
+        ctx->anim.from_file = snapshot->last_move.start.file;
+        ctx->anim.from_rank = snapshot->last_move.start.rank;
+        ctx->anim.to_file = snapshot->last_move.end.file;
+        ctx->anim.to_rank = snapshot->last_move.end.rank;
         ctx->anim.start_ms = SDL_GetTicks();
         ctx->anim.duration_ms = 180;
-        ctx->anim.from_px.x = geo.offset_x + (snapshot.last_move.start.file * geo.cell) + geo.cell / 2.0f;
-        ctx->anim.from_px.y = geo.offset_y + (snapshot.last_move.start.rank * geo.cell) + geo.cell / 2.0f;
-        ctx->anim.to_px.x = geo.offset_x + (snapshot.last_move.end.file * geo.cell) + geo.cell / 2.0f;
-        ctx->anim.to_px.y = geo.offset_y + (snapshot.last_move.end.rank * geo.cell) + geo.cell / 2.0f;
+        ctx->anim.from_px.x = geo.offset_x + (snapshot->last_move.start.file * geo.cell) + geo.cell / 2.0f;
+        ctx->anim.from_px.y = geo.offset_y + (snapshot->last_move.start.rank * geo.cell) + geo.cell / 2.0f;
+        ctx->anim.to_px.x = geo.offset_x + (snapshot->last_move.end.file * geo.cell) + geo.cell / 2.0f;
+        ctx->anim.to_px.y = geo.offset_y + (snapshot->last_move.end.rank * geo.cell) + geo.cell / 2.0f;
     }
-    ctx->last_turn_number = snapshot.match.turn_number;
+    ctx->last_turn_number = snapshot->match.turn_number;
 
     Uint32 now_ms = SDL_GetTicks();
 
-    draw_board(ctx, &snapshot, geo.offset_x, geo.offset_y, geo.cell, now_ms);
+    draw_board(ctx, snapshot, geo.offset_x, geo.offset_y, geo.cell, now_ms);
     draw_board_labels(ctx->surface.renderer, geo.offset_x, geo.offset_y, geo.cell, geo.board_size, ctx->surface.window_width, ctx->surface.window_height);
-    draw_captures(ctx, &snapshot, &geo);
-    draw_turn_indicator(ctx, &snapshot, state, &geo);
+    draw_captures(ctx, snapshot, &geo);
+    draw_turn_indicator(ctx, snapshot, state, &geo);
 
-    if (snapshot.ui.show_main_menu) {
-        ui_draw_main_menu(ctx, &snapshot);
-    } else if (snapshot.ui.show_pause_menu) {
-        ui_draw_pause_menu(ctx, &snapshot);
-    } else if (game_is_terminal_phase(snapshot.match.phase)) {
-        ui_draw_win_screen(ctx, &snapshot);
+    if (snapshot->ui.show_main_menu) {
+        ui_draw_main_menu(ctx, snapshot);
+    } else if (snapshot->ui.show_pause_menu) {
+        ui_draw_pause_menu(ctx, snapshot);
+    } else if (game_is_terminal_phase(snapshot->match.phase)) {
+        ui_draw_win_screen(ctx, snapshot);
     }
-    if (snapshot.ui.show_debug) {
-        debug_overlay_render(ctx, &snapshot);
+    if (snapshot->ui.show_debug) {
+        debug_overlay_render(ctx, snapshot);
     }
 
     SDL_RenderPresent(ctx->surface.renderer);

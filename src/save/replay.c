@@ -1,4 +1,5 @@
 #include "save/replay.h"
+#include "save/replay_parse.h"
 
 #include <SDL.h>
 #include <stdio.h>
@@ -6,8 +7,6 @@
 #include <string.h>
 
 #define REPLAY_VERSION "CHESSC_REPLAY_V1"
-
-static int parse_square_list(const char *list, int8_t *files, int8_t *ranks, int max);
 
 static void ensure_capacity(ReplayRecorder *rec) {
     if (rec->event_count + 1 <= rec->event_capacity) return;
@@ -527,26 +526,6 @@ static void parse_castle_rights(const char *rights, bool *w_k, bool *w_q, bool *
     *w_q = strchr(rights, 'Q') != NULL;
     *b_k = strchr(rights, 'k') != NULL;
     *b_q = strchr(rights, 'q') != NULL;
-}
-
-static int parse_square_list(const char *list, int8_t *files, int8_t *ranks, int max) {
-    if (!list || !files || !ranks || max <= 0) return 0;
-    if (strcmp(list, "-") == 0) return 0;
-    int count = 0;
-    char buf[128];
-    strncpy(buf, list, sizeof(buf) - 1);
-    buf[sizeof(buf) - 1] = '\0';
-    char *token = strtok(buf, ",");
-    while (token && count < max) {
-        int f = -1, r = -1;
-        if (sscanf(token, "%d:%d", &f, &r) == 2) {
-            files[count] = (int8_t)f;
-            ranks[count] = (int8_t)r;
-            count++;
-        }
-        token = strtok(NULL, ",");
-    }
-    return count;
 }
 
 static bool square_in_list(int f, int r, const int8_t *files, const int8_t *ranks, int count) {

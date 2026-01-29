@@ -26,11 +26,13 @@ static SDL_Rect center_rect(int window_w, int window_h, int w, int h) {
 
 static MenuLayout menu_layout(int window_w, int window_h) {
     MenuLayout layout;
-    int panel_w = window_w * 2 / 3;
+    int panel_w = window_w / 2;
     int panel_h = window_h * 2 / 3;
     layout.panel = center_rect(window_w, window_h, panel_w, panel_h);
     layout.scale = window_w / 300;
     if (layout.scale < 2) layout.scale = 2;
+    layout.scale = (layout.scale + 1) / 2;
+    if (layout.scale < 1) layout.scale = 1;
     layout.body_y = layout.panel.y + 24 + (8 * (layout.scale + 1));
     layout.line_height = (7 + 1) * layout.scale;
     return layout;
@@ -85,6 +87,20 @@ void mouse_handle_event(GameState *game, const RenderContext *render, const SDL_
     static bool last_menu_valid = false;
     if (!game || !render || !event) {
         return;
+    }
+    if (SDL_LockMutex(game->mutex) == 0) {
+        bool replay_block = game->ui.replay_mode_active &&
+            !game->ui.show_main_menu &&
+            !game->ui.show_pause_menu &&
+            !game->ui.show_save_modal &&
+            !game->ui.show_load_menu &&
+            !game->ui.show_load_confirm &&
+            !game->ui.show_new_menu &&
+            !game_is_terminal_phase(game->match.phase);
+        SDL_UnlockMutex(game->mutex);
+        if (replay_block) {
+            return;
+        }
     }
 
     if (event->type == SDL_MOUSEMOTION) {
@@ -184,7 +200,11 @@ void mouse_handle_event(GameState *game, const RenderContext *render, const SDL_
                 render->surface.window_width, render->surface.window_height);
             if (action == 1) {
                 if (game->ui.load_selected >= 0 && game->ui.load_selected < game->ui.load_count) {
-                    handled = save_load_named(game, game->ui.load_names[game->ui.load_selected]);
+                    if (game->ui.load_is_replay) {
+                        handled = replay_request_named(game, game->ui.load_names[game->ui.load_selected]);
+                    } else {
+                        handled = save_load_named(game, game->ui.load_names[game->ui.load_selected]);
+                    }
                 }
                 game->ui.show_load_confirm = false;
                 game->ui.show_load_menu = false;
@@ -206,7 +226,11 @@ void mouse_handle_event(GameState *game, const RenderContext *render, const SDL_
             }
         } else if (game->ui.show_load_menu) {
             if (game->ui.load_needs_refresh) {
-                save_refresh_list(game);
+                if (game->ui.load_is_replay) {
+                    replay_refresh_list(game);
+                } else {
+                    save_refresh_list(game);
+                }
                 game->ui.load_needs_refresh = false;
             }
             SDL_Rect list_box = {0};
@@ -249,7 +273,11 @@ void mouse_handle_event(GameState *game, const RenderContext *render, const SDL_
             handled = ui_handle_main_menu_click(game, event->button.x, event->button.y,
                 render->surface.window_width, render->surface.window_height, &request_quit);
             if (game->ui.load_needs_refresh) {
-                save_refresh_list(game);
+                if (game->ui.load_is_replay) {
+                    replay_refresh_list(game);
+                } else {
+                    save_refresh_list(game);
+                }
                 game->ui.load_needs_refresh = false;
             }
             if (request_quit) {
@@ -261,7 +289,11 @@ void mouse_handle_event(GameState *game, const RenderContext *render, const SDL_
             handled = ui_handle_pause_menu_click(game, event->button.x, event->button.y,
                 render->surface.window_width, render->surface.window_height);
             if (game->ui.load_needs_refresh) {
-                save_refresh_list(game);
+                if (game->ui.load_is_replay) {
+                    replay_refresh_list(game);
+                } else {
+                    save_refresh_list(game);
+                }
                 game->ui.load_needs_refresh = false;
             }
         } else {
@@ -312,4 +344,3 @@ void mouse_handle_event(GameState *game, const RenderContext *render, const SDL_
     }
     SDL_UnlockMutex(game->mutex);
 }
-

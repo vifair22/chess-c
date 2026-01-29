@@ -72,6 +72,7 @@ add_executable(chess-c
     src/save/save_handler.c
     src/save/save_sync.c
     src/save/replay.c
+    src/save/replay_parse.c
     src/audio/audio.c
 )
 

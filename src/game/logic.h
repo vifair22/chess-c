@@ -99,6 +99,7 @@ typedef struct {
     bool show_load_confirm;
     bool show_new_menu;
     bool load_needs_refresh;
+    bool load_is_replay;
     int main_menu_index;
     int new_menu_index;
     int pause_menu_index;
@@ -118,6 +119,13 @@ typedef struct {
     int load_scroll_drag_offset;
     int turn_log_scroll;
     int turn_log_max_scroll;
+    bool replay_mode_active;
+    bool replay_request_pending;
+    char replay_request[256];
+    bool ai_highlight_active;
+    bool ai_highlight_suppressed;
+    BoardPos ai_highlight_from;
+    BoardPos ai_highlight_to;
   } UiState;
 
 typedef struct {
@@ -202,6 +210,8 @@ void game_reset(GameState *state, const char *mode);
 void game_recompute_phase(GameState *state);
 // Reset repetition history (e.g., after seeding a custom board state).
 void game_reset_history(GameState *state);
+// Copy the minimal fields needed for move generation and legality checks.
+void game_copy_state_minimal(GameState *dst, const GameState *src);
 // Apply a legal move (used by AI/replay), returns false if invalid or unsupported.
 bool game_apply_move(GameState *state, BoardPos from, BoardPos to, MoveHint hint);
 // Apply a legal move for the AI turn (bypasses AI turn input blocking). Asserts on invalid AI moves.

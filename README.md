@@ -8,6 +8,7 @@ Lightweight SDL2 chess + checkers game. Core gameplay, rendering, replay recordi
 - AI with depth search plus a timed 10-second mode ("10S" in the new game menu).
 - Captures panel and turn list (SAN) UI with scroll.
 - Replay capture and deterministic playback (see `REPLAY_SCHEMA.md`).
+- Replay browser from the main menu (loads `.replay` files from `replays/`).
 - Headless/test mode for replay verification.
 - Debug overlay with AI status (stage, nodes, depth, timing).
 
@@ -65,6 +66,7 @@ macOS/Linux:
 - Q / R / B / N (in game): set preferred promotion piece.
 - F3: toggle debug overlay.
 - Mouse wheel: scroll turn list (SAN) when playing.
+- Replay mode: input is disabled during playback; use Esc/P to pause and return to the main menu.
 
 ## Replay capture & playback
 
@@ -77,6 +79,8 @@ Replay interactively:
 ```bash
 chess-c --replay replays/my_game.replay
 ```
+
+You can also load replays from the main menu via REPLAYS.
 
 Replay in headless/test mode (prints checksums and exits non-zero on failure):
 ```bash
@@ -99,6 +103,7 @@ The CMake test runner (`test/chess-c-tests`) replays all `.replay` files in `rep
 - `src/renderer/*`: SDL rendering, UI panels, piece sprites, debug overlay.
 - `src/input/*`: keyboard + mouse input handling.
 - `src/save/replay.*`: replay recording/loading, checksums, assertions.
+- `src/save/replay_parse.*`: replay parsing helpers (square lists, assertions).
 - `src/main.c`: SDL init, main loop, replay CLI flags.
 
 ## Structs (expanded)
@@ -206,6 +211,7 @@ GameState
 │   ├─ bool show_load_confirm
 │   ├─ bool show_new_menu
 │   ├─ bool load_needs_refresh
+│   ├─ bool load_is_replay
 │   ├─ int main_menu_index
 │   ├─ int new_menu_index
 │   ├─ int pause_menu_index
@@ -224,7 +230,14 @@ GameState
 │   ├─ bool load_scroll_dragging
 │   ├─ int load_scroll_drag_offset
 │   ├─ int turn_log_scroll
-│   └─ int turn_log_max_scroll
+│   ├─ int turn_log_max_scroll
+│   ├─ bool replay_mode_active
+│   ├─ bool replay_request_pending
+│   ├─ char replay_request[256]
+│   ├─ bool ai_highlight_active
+│   ├─ bool ai_highlight_suppressed
+│   ├─ BoardPos ai_highlight_from
+│   └─ BoardPos ai_highlight_to
 ├─ PerfState perf
 │   ├─ double last_frame_seconds
 │   ├─ double last_fps
@@ -248,7 +261,7 @@ GameState
 
 ### Render structs
 - `RenderContext`: SDL window/renderer, cached piece textures, animation state,
-  last turn number, and per-square overlay fade buffers.
+  a per-frame game snapshot, last turn number, and per-square overlay fade buffers.
 - `BoardGeometry`: board pixel origin + `cell` size + total `board_size`, plus right-side margins.
 - `RenderPalette`: named UI colors for board, overlays, pieces, text, and panels.
 - `PieceSprite`: embedded sprite metadata + RGBA pixels.
@@ -281,6 +294,7 @@ RenderContext
 │   ├─ float blocked_alpha[8][8]
 │   ├─ float hover_alpha[8][8]
 │   └─ float check_alpha[8][8]
+├─ GameState snapshot
 └─ int last_turn_number
 
 BoardGeometry
