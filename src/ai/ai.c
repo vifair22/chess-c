@@ -1,4 +1,5 @@
 #include "ai/ai.h"
+#include "ai/ai_common.h"
 
 #include <SDL.h>
 #include <stdlib.h>
@@ -7,13 +8,10 @@
 #include "save/replay.h"
 #include "ai/search.h"
 #include "core/platform.h"
-#define AI_MAX_MOVES 256
-#define AI_INF 1000000
-#define AI_MATE 100000
-#define AI_TIME_LIMIT_MS 10000
-#define AI_TIME_MAX_DEPTH 32
 
-#define AI_BUF_PLY (AI_TIME_MAX_DEPTH + 8)
+#define AI_MAX_MOVES 256
+#define AI_TIME_LIMIT_MS 10000
+#define AI_BUF_PLY (AI_MAX_DEPTH + 8)
 
 
 typedef struct {
@@ -22,19 +20,11 @@ typedef struct {
     MoveHint hint;
 } AiMove;
 
-#define AI_TT_SIZE 262144
-
-typedef enum {
-    AI_TT_EXACT = 0,
-    AI_TT_LOWER = 1,
-    AI_TT_UPPER = 2
-} AiTtFlag;
-
 typedef struct {
     uint32_t key;
     int depth;
     int score;
-    AiTtFlag flag;
+    TtFlag flag;
     AiMove best;
     bool valid;
 } AiTtEntry;
@@ -124,7 +114,7 @@ static void ai_snapshot_state(GameState *dst, const GameState *src) {
     game_clear_move_flags(dst);
 }
 
-static int piece_value(char piece);
+// piece_value() is now in ai_common.h
 
 uint32_t ai_position_key(const GameState *state) {
     if (!state) return 0;
@@ -223,22 +213,22 @@ static bool ai_tt_probe(uint32_t key, int depth, int alpha, int beta, int *out_s
     if (entry->depth < depth) {
         return false;
     }
-    if (entry->flag == AI_TT_EXACT) {
+    if (entry->flag == TT_EXACT) {
         *out_score = entry->score;
         return true;
     }
-    if (entry->flag == AI_TT_LOWER && entry->score >= beta) {
+    if (entry->flag == TT_LOWER && entry->score >= beta) {
         *out_score = entry->score;
         return true;
     }
-    if (entry->flag == AI_TT_UPPER && entry->score <= alpha) {
+    if (entry->flag == TT_UPPER && entry->score <= alpha) {
         *out_score = entry->score;
         return true;
     }
     return false;
 }
 
-static void ai_tt_store(uint32_t key, int depth, int score, AiTtFlag flag, const AiMove *best) {
+static void ai_tt_store(uint32_t key, int depth, int score, TtFlag flag, const AiMove *best) {
     AiTtEntry *entry = &g_ai_tt[key & (AI_TT_SIZE - 1)];
     if (entry->valid && entry->key == key && entry->depth > depth) {
         return;
@@ -252,27 +242,7 @@ static void ai_tt_store(uint32_t key, int depth, int score, AiTtFlag flag, const
 }
 
 
-static int piece_value(char piece) {
-    switch (piece) {
-        case 'P':
-        case 'p':
-            return 100;
-        case 'N':
-        case 'n':
-            return 320;
-        case 'B':
-        case 'b':
-            return 330;
-        case 'R':
-        case 'r':
-            return 500;
-        case 'Q':
-        case 'q':
-            return 900;
-        default:
-            return 0;
-    }
-}
+// piece_value() moved to ai_common.h
 
 static int material_score_chess(const GameState *state) {
     int score = 0;
@@ -499,11 +469,11 @@ static int negamax(GameState *state, int depth, int alpha, int beta, int ply, Ai
         *out_best = best_move;
     }
 
-    AiTtFlag flag = AI_TT_EXACT;
+    TtFlag flag = TT_EXACT;
     if (best <= alpha_orig) {
-        flag = AI_TT_UPPER;
+        flag = TT_UPPER;
     } else if (best >= beta) {
-        flag = AI_TT_LOWER;
+        flag = TT_LOWER;
     }
     if (have_best) {
         ai_tt_store(key, depth, best, flag, &best_move);
@@ -522,7 +492,7 @@ static bool ai_compute_move(GameState *state, int depth, AiMove *out_move, bool 
 
     bool timed = depth >= 9;
     uint32_t deadline = timed ? (SDL_GetTicks() + AI_TIME_LIMIT_MS) : 0;
-    int max_depth = timed ? AI_TIME_MAX_DEPTH : depth;
+    int max_depth = timed ? AI_MAX_DEPTH : depth;
 
     bool checkers = strncmp(state->match.mode, "checkers", 8) == 0;
     if (!checkers) {

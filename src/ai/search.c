@@ -1,14 +1,11 @@
 #include "ai/search.h"
+#include "ai/ai_common.h"
 
 #include <SDL.h>
 #include <stdint.h>
 #include <string.h>
 
 #define SEARCH_MAX_PIECES 16
-#define SEARCH_TT_SIZE 262144
-#define SEARCH_INF 1000000
-#define SEARCH_MATE 100000
-#define SEARCH_MAX_DEPTH 32
 
 enum {
     SEARCH_BLACK = 0,
@@ -44,24 +41,18 @@ typedef struct {
     uint64_t prev_key;
 } SearchUndo;
 
-typedef enum {
-    TT_EXACT = 0,
-    TT_LOWER = 1,
-    TT_UPPER = 2
-} SearchTtFlag;
-
 typedef struct {
     uint64_t key;
     int depth;
     int score;
-    SearchTtFlag flag;
+    TtFlag flag;
     SearchMove best;
     bool valid;
 } SearchTtEntry;
 
-static SearchTtEntry g_tt[SEARCH_TT_SIZE];
+static SearchTtEntry g_tt[AI_TT_SIZE];
 static int g_history[2][64][64];
-static SearchMove g_killers[SEARCH_MAX_DEPTH][2];
+static SearchMove g_killers[AI_MAX_DEPTH][2];
 
 static uint64_t g_zobrist_piece[12][64];
 static uint64_t g_zobrist_castle[16];
@@ -125,11 +116,7 @@ static inline int rank_of(int sq) {
 }
 
 static inline int piece_color(char p) {
-    return (p >= 'A' && p <= 'Z') ? SEARCH_WHITE : SEARCH_BLACK;
-}
-
-static inline bool piece_is_white(char p) {
-    return p >= 'A' && p <= 'Z';
+    return piece_is_white(p) ? SEARCH_WHITE : SEARCH_BLACK;
 }
 
 static int piece_index(char p) {
@@ -150,27 +137,7 @@ static int piece_index(char p) {
     }
 }
 
-static int piece_value(char piece) {
-    switch (piece) {
-        case 'P':
-        case 'p':
-            return 100;
-        case 'N':
-        case 'n':
-            return 320;
-        case 'B':
-        case 'b':
-            return 330;
-        case 'R':
-        case 'r':
-            return 500;
-        case 'Q':
-        case 'q':
-            return 900;
-        default:
-            return 0;
-    }
-}
+// piece_value() is now in ai_common.h
 
 static bool move_equal(const SearchMove *a, const SearchMove *b) {
     return a->from.file == b->from.file && a->from.rank == b->from.rank &&
@@ -746,7 +713,7 @@ static int move_score(const SearchState *s, const SearchMove *m, const SearchMov
         int from = sq_of(m->from.file, m->from.rank);
         int to = sq_of(m->to.file, m->to.rank);
         score += g_history[color][from][to];
-        if (ply >= 0 && ply < SEARCH_MAX_DEPTH) {
+        if (ply >= 0 && ply < AI_MAX_DEPTH) {
             if (move_equal(m, &g_killers[ply][0])) score += 9000;
             else if (move_equal(m, &g_killers[ply][1])) score += 8000;
         }
@@ -774,7 +741,7 @@ static void order_moves(const SearchState *s, SearchMove *moves, int count, cons
 
 static bool tt_probe(uint64_t key, int depth, int alpha, int beta, int *out_score, SearchMove *out_best) {
     if (!out_score || !out_best) return false;
-    SearchTtEntry *entry = &g_tt[key & (SEARCH_TT_SIZE - 1)];
+    SearchTtEntry *entry = &g_tt[key & (AI_TT_SIZE - 1)];
     if (!entry->valid || entry->key != key) return false;
     *out_best = entry->best;
     if (entry->depth < depth) return false;
@@ -793,8 +760,8 @@ static bool tt_probe(uint64_t key, int depth, int alpha, int beta, int *out_scor
     return false;
 }
 
-static void tt_store(uint64_t key, int depth, int score, SearchTtFlag flag, const SearchMove *best) {
-    SearchTtEntry *entry = &g_tt[key & (SEARCH_TT_SIZE - 1)];
+static void tt_store(uint64_t key, int depth, int score, TtFlag flag, const SearchMove *best) {
+    SearchTtEntry *entry = &g_tt[key & (AI_TT_SIZE - 1)];
     if (entry->valid && entry->key == key && entry->depth > depth) {
         return;
     }
@@ -811,7 +778,7 @@ static int terminal_score(const SearchState *s, int depth) {
     int king_sq = s->king_sq[color];
     bool in_check = is_square_attacked(s, king_sq, color == SEARCH_WHITE ? false : true);
     if (in_check) {
-        return -SEARCH_MATE + depth;
+        return -AI_MATE + depth;
     }
     return 0;
 }
@@ -886,7 +853,7 @@ static int negamax(SearchState *s, int depth, int alpha, int beta, SearchMove *o
 
     order_moves(s, moves, count, (tt_best.from.file >= 0) ? &tt_best : NULL, depth);
 
-    int best = -SEARCH_INF;
+    int best = -AI_INF;
     SearchMove best_move = {.from = {-1, -1}, .to = {-1, -1}, .hint = {0}};
     bool have_best = false;
 
@@ -928,7 +895,7 @@ static int negamax(SearchState *s, int depth, int alpha, int beta, SearchMove *o
         *out_best = best_move;
     }
 
-    SearchTtFlag flag = TT_EXACT;
+    TtFlag flag = TT_EXACT;
     if (best <= alpha_orig) {
         flag = TT_UPPER;
     } else if (best >= beta) {
@@ -961,8 +928,8 @@ bool search_best_move(const GameState *state, int depth, SearchMove *out_move) {
     int last_score = 0;
     for (int d = 1; d <= depth; ++d) {
         SearchMove iter_best = {.from = {-1, -1}, .to = {-1, -1}, .hint = {0}};
-        int alpha = -SEARCH_INF;
-        int beta = SEARCH_INF;
+        int alpha = -AI_INF;
+        int beta = AI_INF;
         if (d >= 2) {
             int window = 50;
             alpha = last_score - window;
@@ -970,7 +937,7 @@ bool search_best_move(const GameState *state, int depth, SearchMove *out_move) {
         }
         int score = negamax(&s, d, alpha, beta, &iter_best);
         if (score <= alpha || score >= beta) {
-            score = negamax(&s, d, -SEARCH_INF, SEARCH_INF, &iter_best);
+            score = negamax(&s, d, -AI_INF, AI_INF, &iter_best);
         }
         last_score = score;
         if (iter_best.from.file >= 0) {
@@ -992,7 +959,7 @@ bool search_best_move_timed(const GameState *state, int max_depth, uint32_t dead
     g_search_abort = false;
     search_reset_counters();
     if (max_depth < 1) max_depth = 1;
-    if (max_depth > SEARCH_MAX_DEPTH) max_depth = SEARCH_MAX_DEPTH;
+    if (max_depth > AI_MAX_DEPTH) max_depth = AI_MAX_DEPTH;
 
     memset(g_history, 0, sizeof(g_history));
     memset(g_killers, 0, sizeof(g_killers));
@@ -1006,8 +973,8 @@ bool search_best_move_timed(const GameState *state, int max_depth, uint32_t dead
     for (int d = 1; d <= max_depth; ++d) {
         if (search_time_up()) break;
         SearchMove iter_best = {.from = {-1, -1}, .to = {-1, -1}, .hint = {0}};
-        int alpha = -SEARCH_INF;
-        int beta = SEARCH_INF;
+        int alpha = -AI_INF;
+        int beta = AI_INF;
         if (d >= 2) {
             int window = 50;
             alpha = last_score - window;
@@ -1016,7 +983,7 @@ bool search_best_move_timed(const GameState *state, int max_depth, uint32_t dead
         int score = negamax(&s, d, alpha, beta, &iter_best);
         if (g_search_abort) break;
         if (score <= alpha || score >= beta) {
-            score = negamax(&s, d, -SEARCH_INF, SEARCH_INF, &iter_best);
+            score = negamax(&s, d, -AI_INF, AI_INF, &iter_best);
         }
         if (g_search_abort) break;
         last_score = score;
