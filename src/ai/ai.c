@@ -12,6 +12,8 @@
 #define AI_MAX_MOVES 256
 #define AI_TIME_LIMIT_MS 10000
 #define AI_BUF_PLY (AI_MAX_DEPTH + 8)
+#define AI_OVERFLOW_SLOTS 32
+#define QS_MAX_DEPTH 24
 
 
 typedef struct {
@@ -38,17 +40,88 @@ static int g_ai_depth_reached = 0;
 static THREAD_LOCAL AiMove g_ai_move_buffer[AI_BUF_PLY][AI_MAX_MOVES];
 static THREAD_LOCAL GameState g_ai_state_buffer[AI_BUF_PLY];
 
+// Stack pool for overflow allocations beyond AI_BUF_PLY
+typedef struct {
+    uint8_t *base;
+    uint8_t *ptr;
+    uint8_t *end;
+} StackPool;
+
+static THREAD_LOCAL StackPool g_overflow_moves;
+static THREAD_LOCAL StackPool g_overflow_states;
+static THREAD_LOCAL bool g_overflow_initialized = false;
+
+static void overflow_pool_init(void) {
+    if (g_overflow_initialized) return;
+
+    size_t move_size = sizeof(AiMove) * AI_MAX_MOVES * AI_OVERFLOW_SLOTS;
+    size_t state_size = sizeof(GameState) * AI_OVERFLOW_SLOTS;
+
+    g_overflow_moves.base = (uint8_t *)malloc(move_size);
+    g_overflow_moves.ptr = g_overflow_moves.base;
+    g_overflow_moves.end = g_overflow_moves.base ? g_overflow_moves.base + move_size : NULL;
+
+    g_overflow_states.base = (uint8_t *)malloc(state_size);
+    g_overflow_states.ptr = g_overflow_states.base;
+    g_overflow_states.end = g_overflow_states.base ? g_overflow_states.base + state_size : NULL;
+
+    g_overflow_initialized = true;
+}
+
+static void overflow_pool_shutdown(void) {
+    if (!g_overflow_initialized) return;
+    free(g_overflow_moves.base);
+    free(g_overflow_states.base);
+    g_overflow_moves = (StackPool){0};
+    g_overflow_states = (StackPool){0};
+    g_overflow_initialized = false;
+}
+
+static void overflow_pool_reset(void) {
+    g_overflow_moves.ptr = g_overflow_moves.base;
+    g_overflow_states.ptr = g_overflow_states.base;
+}
+
+static void *stack_alloc(StackPool *pool, size_t size) {
+    if (!pool->base || pool->ptr + size > pool->end) {
+        return malloc(size);  // fallback if pool exhausted
+    }
+    void *result = pool->ptr;
+    pool->ptr += size;
+    return result;
+}
+
+static void stack_free(StackPool *pool, void *ptr, size_t size) {
+    if (!pool->base) {
+        free(ptr);
+        return;
+    }
+    // Check if ptr is within pool bounds
+    if ((uint8_t *)ptr >= pool->base && (uint8_t *)ptr < pool->end) {
+        // Stack free - just decrement pointer
+        pool->ptr = (uint8_t *)ptr;
+    } else {
+        // Was a malloc fallback
+        free(ptr);
+    }
+}
+
 static AiMove *ai_get_move_buf(int ply, bool *out_heap) {
     if (out_heap) *out_heap = false;
     if (ply >= 0 && ply < AI_BUF_PLY) {
         return g_ai_move_buffer[ply];
     }
     if (out_heap) *out_heap = true;
-    AiMove *result = (AiMove *)malloc(sizeof(AiMove) * AI_MAX_MOVES);
+    AiMove *result = (AiMove *)stack_alloc(&g_overflow_moves, sizeof(AiMove) * AI_MAX_MOVES);
     if (!result) {
         SDL_Log("Failed to allocate AI move buffer for ply %d", ply);
     }
     return result;
+}
+
+static void ai_free_move_buf(AiMove *buf, bool heap) {
+    if (!heap || !buf) return;
+    stack_free(&g_overflow_moves, buf, sizeof(AiMove) * AI_MAX_MOVES);
 }
 
 static GameState *ai_get_state_buf(int ply, bool *out_heap) {
@@ -57,11 +130,16 @@ static GameState *ai_get_state_buf(int ply, bool *out_heap) {
         return &g_ai_state_buffer[ply];
     }
     if (out_heap) *out_heap = true;
-    GameState *result = (GameState *)malloc(sizeof(GameState));
+    GameState *result = (GameState *)stack_alloc(&g_overflow_states, sizeof(GameState));
     if (!result) {
         SDL_Log("Failed to allocate AI state buffer for ply %d", ply);
     }
     return result;
+}
+
+static void ai_free_state_buf(GameState *buf, bool heap) {
+    if (!heap || !buf) return;
+    stack_free(&g_overflow_states, buf, sizeof(GameState));
 }
 
 static inline bool ai_time_up(void) {
@@ -346,7 +424,7 @@ static int terminal_score(GameState *state, int depth) {
     return 0; // stalemate or draw
 }
 
-static int quiescence(GameState *state, int alpha, int beta, int ply) {
+static int quiescence(GameState *state, int alpha, int beta, int ply, int qs_depth) {
     g_ai_nodes++;
     if (g_ai_abort || ai_time_up()) {
         g_ai_abort = true;
@@ -356,19 +434,24 @@ static int quiescence(GameState *state, int alpha, int beta, int ply) {
     if (stand >= beta) return beta;
     if (stand > alpha) alpha = stand;
 
+    // Quiescence depth limit - stop searching captures beyond this depth
+    if (qs_depth >= QS_MAX_DEPTH) {
+        return stand;
+    }
+
     bool heap_moves = false;
     bool heap_state = false;
     AiMove *moves = ai_get_move_buf(ply, &heap_moves);
     GameState *next = ai_get_state_buf(ply, &heap_state);
     if (!moves || !next) {
-        if (heap_moves) free(moves);
-        if (heap_state) free(next);
+        ai_free_move_buf(moves, heap_moves);
+        ai_free_state_buf(next, heap_state);
         return stand;
     }
     int count = generate_moves(state, moves, AI_MAX_MOVES);
     if (count <= 0) {
-        if (heap_moves) free(moves);
-        if (heap_state) free(next);
+        ai_free_move_buf(moves, heap_moves);
+        ai_free_state_buf(next, heap_state);
         return stand;
     }
 
@@ -382,16 +465,16 @@ static int quiescence(GameState *state, int alpha, int beta, int ply) {
         if (!game_apply_move(next, moves[i].from, moves[i].to, moves[i].hint)) {
             continue;
         }
-        int score = -quiescence(next, -beta, -alpha, ply + 1);
+        int score = -quiescence(next, -beta, -alpha, ply + 1, qs_depth + 1);
         if (score >= beta) {
-            if (heap_moves) free(moves);
-            if (heap_state) free(next);
+            ai_free_move_buf(moves, heap_moves);
+            ai_free_state_buf(next, heap_state);
             return beta;
         }
         if (score > alpha) alpha = score;
     }
-    if (heap_moves) free(moves);
-    if (heap_state) free(next);
+    ai_free_move_buf(moves, heap_moves);
+    ai_free_state_buf(next, heap_state);
     return alpha;
 }
 
@@ -419,22 +502,22 @@ static int negamax(GameState *state, int depth, int alpha, int beta, int ply, Ai
     AiMove *moves = ai_get_move_buf(ply, &heap_moves);
     GameState *next = ai_get_state_buf(ply, &heap_state);
     if (!moves || !next) {
-        if (heap_moves) free(moves);
-        if (heap_state) free(next);
+        ai_free_move_buf(moves, heap_moves);
+        ai_free_state_buf(next, heap_state);
         return evaluate(state);
     }
     int count = generate_moves(state, moves, AI_MAX_MOVES);
 
     if (count == 0) {
-        if (heap_moves) free(moves);
-        if (heap_state) free(next);
+        ai_free_move_buf(moves, heap_moves);
+        ai_free_state_buf(next, heap_state);
         return terminal_score(state, depth);
     }
     if (depth == 0) {
         bool checkers = strncmp(state->match.mode, "checkers", 8) == 0;
-        int score = checkers ? evaluate(state) : quiescence(state, alpha, beta, ply + 1);
-        if (heap_moves) free(moves);
-        if (heap_state) free(next);
+        int score = checkers ? evaluate(state) : quiescence(state, alpha, beta, ply + 1, 0);
+        ai_free_move_buf(moves, heap_moves);
+        ai_free_state_buf(next, heap_state);
         return score;
     }
 
@@ -479,8 +562,8 @@ static int negamax(GameState *state, int depth, int alpha, int beta, int ply, Ai
         ai_tt_store(key, depth, best, flag, &best_move);
     }
 
-    if (heap_moves) free(moves);
-    if (heap_state) free(next);
+    ai_free_move_buf(moves, heap_moves);
+    ai_free_state_buf(next, heap_state);
     return best;
 }
 
@@ -489,6 +572,9 @@ static bool ai_compute_move(GameState *state, int depth, AiMove *out_move, bool 
     if (!state || !out_move) return false;
     if (depth < 1) depth = 1;
     if (depth > 9) depth = 9;
+
+    // Reset overflow pools for this search
+    overflow_pool_reset();
 
     bool timed = depth >= 9;
     uint32_t deadline = timed ? (SDL_GetTicks() + AI_TIME_LIMIT_MS) : 0;
@@ -575,6 +661,7 @@ bool ai_make_move(GameState *state) {
 
 static int ai_worker_thread(void *userdata) {
     AiWorker *worker = (AiWorker *)userdata;
+    overflow_pool_init();  // Initialize thread-local pools for this worker
     while (true) {
         SDL_LockMutex(worker->mutex);
         while (worker->running && !worker->has_job) {
@@ -615,10 +702,12 @@ static int ai_worker_thread(void *userdata) {
         worker->stage = AI_STAGE_DONE;
         SDL_UnlockMutex(worker->mutex);
     }
+    overflow_pool_shutdown();  // Clean up thread-local pools
     return 0;
 }
 
 bool ai_worker_init(void) {
+    overflow_pool_init();
     memset(&g_ai_worker, 0, sizeof(g_ai_worker));
     g_ai_worker.mutex = SDL_CreateMutex();
     if (!g_ai_worker.mutex) {
@@ -655,6 +744,9 @@ void ai_worker_shutdown(void) {
     if (!g_ai_worker.mutex) {
         return;
     }
+    // Interrupt any in-progress search before waiting for thread
+    g_ai_abort = true;
+    search_abort();
     SDL_LockMutex(g_ai_worker.mutex);
     g_ai_worker.running = false;
     SDL_CondSignal(g_ai_worker.cond);
@@ -669,6 +761,7 @@ void ai_worker_shutdown(void) {
         SDL_DestroyMutex(g_ai_worker.mutex);
     }
     memset(&g_ai_worker, 0, sizeof(g_ai_worker));
+    overflow_pool_shutdown();
 }
 
 void ai_worker_reset(void) {
@@ -746,8 +839,11 @@ bool ai_get_worker_status(AiWorkerStatus *out) {
         } else {
             out->last_compute_ms = 0.0;
         }
-        out->last_nodes = g_ai_worker.last_nodes;
-        out->last_depth = g_ai_worker.last_depth;
+        // Read live counters during search (minor data race acceptable for display)
+        // Chess uses search.c counters, checkers uses g_ai_nodes/g_ai_depth_reached
+        bool checkers = strncmp(g_ai_worker.job.state.match.mode, "checkers", 8) == 0;
+        out->last_nodes = checkers ? g_ai_nodes : search_get_live_nodes();
+        out->last_depth = checkers ? g_ai_depth_reached : search_get_live_depth();
     } else {
         out->last_compute_ms = g_ai_worker.last_compute_ms;
         out->last_nodes = g_ai_worker.last_nodes;

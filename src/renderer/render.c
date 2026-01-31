@@ -100,10 +100,10 @@ static bool draw_piece_texture(SDL_Renderer *renderer, SDL_Texture *tex, int cel
         dh
     };
     SDL_Rect shadow = dst;
-    shadow.x += cell / 8;  // push shadow further so it doesn't peek out on the left
+    shadow.x += cell / 8;
     shadow.y += cell / 8;
 
-    SDL_SetTextureColorMod(tex, 0, 0, 0);   // solid dark shadow regardless of piece tint
+    SDL_SetTextureColorMod(tex, 0, 0, 0);
     SDL_SetTextureAlphaMod(tex, 180);
     if (SDL_RenderCopy(renderer, tex, NULL, &shadow) != 0) {
         SDL_Log("SDL_RenderCopy (shadow) failed: %s", SDL_GetError());
@@ -733,13 +733,13 @@ void render_frame(RenderContext *ctx, GameState *state) {
     if (!state || !state->mutex) {
         return;
     }
-    if (SDL_LockMutex(state->mutex) != 0) {
+    if (SDL_LockMutex(state->mutex) != 0) { // Lock
         SDL_Log("SDL_LockMutex failed: %s", SDL_GetError());
         return;
     }
-    ctx->snapshot = *state;
-    SDL_UnlockMutex(state->mutex);
-    GameState *snapshot = &ctx->snapshot;
+    ctx->snapshot = *state; // Copy data from the state pointer into the snapshot member accessed via the ctx pointer
+    SDL_UnlockMutex(state->mutex); // Unlock
+    GameState *snapshot = &ctx->snapshot; // create a pointer to the GameState snapshot member inside the structure pointed to by ctx
 
     SDL_GetWindowSize(ctx->surface.window, &ctx->surface.window_width, &ctx->surface.window_height);
 

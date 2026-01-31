@@ -325,7 +325,6 @@ bool game_init(GameState *state) {
     game_reset(state, state->match.mode[0] ? state->match.mode : "chess");
     state->ui.show_main_menu = true;
     state->ui.show_pause_menu = false;
-    state->ai_time_freq = (double)SDL_GetPerformanceFrequency();
 
     return true;
 }
@@ -365,7 +364,6 @@ void game_full_reset(GameState *state) {
     state->ui.show_pause_menu = false;
     state->ui.show_new_menu = false;
     state->ui.full_reset_counter = reset_counter;
-    state->ai_time_freq = (double)SDL_GetPerformanceFrequency();
 }
 
 void game_resign(GameState *state) {
@@ -451,9 +449,6 @@ void game_reset(GameState *state, const char *mode) {
     state->ui.ai_highlight_suppressed = false;
     state->ui.ai_highlight_from = (BoardPos){-1, -1};
     state->ui.ai_highlight_to = (BoardPos){-1, -1};
-    state->ai_last_move_ms = 0.0;
-    state->ai_timing_active = false;
-    state->ai_timing_start = 0;
     state->autosave_last_turn = -1;
     state->autosave_terminal_saved = false;
     state->white_captures_len = 0;

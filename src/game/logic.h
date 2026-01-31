@@ -186,10 +186,6 @@ typedef struct {
     UiState ui;
     PerfState perf;
     AiSettings ai;
-    double ai_last_move_ms;
-    bool ai_timing_active;
-    uint64_t ai_timing_start;
-    double ai_time_freq;
     struct GameSnapshot *snapshots;
     int snapshot_len;
     int snapshot_cap;

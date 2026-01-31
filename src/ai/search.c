@@ -78,6 +78,18 @@ void search_get_counters(uint64_t *out_nodes, int *out_depth) {
     if (out_depth) *out_depth = g_search_depth_reached;
 }
 
+uint64_t search_get_live_nodes(void) {
+    return g_search_nodes;
+}
+
+int search_get_live_depth(void) {
+    return g_search_depth_reached;
+}
+
+void search_abort(void) {
+    g_search_abort = true;
+}
+
 static uint64_t splitmix64(uint64_t *x) {
     uint64_t z = (*x += 0x9e3779b97f4a7c15ULL);
     z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;

@@ -72,7 +72,7 @@ void debug_overlay_render(RenderContext *ctx, const GameState *state) {
         ai_status.last_depth,
         (unsigned long long)ai_status.last_nodes,
         ai_nps,
-        state->ai_last_move_ms,
+        ai_status.last_compute_ms,
         state->match.game_time.total_seconds,
         fps,
         ms);
