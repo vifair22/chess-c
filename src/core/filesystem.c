@@ -1,3 +1,12 @@
+#ifndef _WIN32
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L
+#endif
+#ifndef _XOPEN_SOURCE
+#define _XOPEN_SOURCE 700
+#endif
+#endif
+
 #include "core/filesystem.h"
 
 #include <stdio.h>
@@ -18,6 +27,9 @@
     #include <sys/types.h>
     #include <fnmatch.h>
     #include <limits.h>
+    #ifndef PATH_MAX
+        #define PATH_MAX 4096
+    #endif
 #endif
 
 // === Directory operations ===

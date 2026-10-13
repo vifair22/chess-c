@@ -172,7 +172,13 @@ void ui_draw_load_menu(RenderContext *ctx, const GameState *state) {
             }
             char time_buf[32] = {0};
             struct tm tm_local;
+#ifdef _WIN32
             if (localtime_s(&tm_local, &state->ui.load_times[start + i]) == 0) {
+#else
+            struct tm *tm_ptr = localtime(&state->ui.load_times[start + i]);
+            if (tm_ptr) {
+                tm_local = *tm_ptr;
+#endif
                 strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M", &tm_local);
             }
             int focus_index = start + i;

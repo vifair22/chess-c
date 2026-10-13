@@ -3,8 +3,13 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
-#include <direct.h>
 #include <errno.h>
+
+#ifdef _WIN32
+#include <direct.h>
+#else
+#include <sys/stat.h>
+#endif
 
 #include "ai/ai.h"
 #include "game/logic.h"
@@ -89,7 +94,13 @@ static void print_usage(const char *exe, bool to_stderr) {
  * ensure_replay_dir: Create the replays directory if it doesn't exist.
  */
 static void ensure_replay_dir(void) {
-    if (_mkdir("replays") != 0 && errno != EEXIST) {
+    int mkdir_result;
+#ifdef _WIN32
+    mkdir_result = _mkdir("replays");
+#else
+    mkdir_result = mkdir("replays", 0755);
+#endif
+    if (mkdir_result != 0 && errno != EEXIST) {
         SDL_Log("Failed to create replays directory (errno=%d)", errno);
     }
 }

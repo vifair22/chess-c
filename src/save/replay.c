@@ -410,7 +410,8 @@ bool replay_load(const char *path, ReplayData *out) {
         tok = strtok(NULL, " ");
         if (!tok) continue;
         char type[32] = {0};
-        strncpy_s(type, sizeof(type), tok, _TRUNCATE);
+        strncpy(type, tok, sizeof(type) - 1);
+        type[sizeof(type) - 1] = '\0';
 
         ReplayEvent parsed = {0};
         parsed.t_ms = t_ms;

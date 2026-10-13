@@ -225,3 +225,9 @@ bool game_undo(GameState *state);
 bool game_undo_ex(GameState *state, bool update_anim);
 // Peek the next undo snapshot's side to move.
 bool game_peek_undo_white_to_move(const GameState *state, bool *out_white_to_move);
+
+// Position-state helpers used by rules and tests.
+uint64_t position_hash(const GameState *state);
+void record_position(GameState *state);
+int repetition_count(const GameState *state);
+bool is_insufficient_material(const GameState *state);
